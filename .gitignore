@@ -43,6 +43,10 @@ dist/
 # Helix specific
 .helix/
 
+# Helix session files (JSONL)
+.helix/sessions/
+*.jsonl
+
 # CodeBuddy local settings (contains tokens)
 .codebuddy/settings.local.json
 
