@@ -1,4 +1,4 @@
-.PHONY: build test lint install release clean
+.PHONY: build test lint install release clean tui tui-run dev
 
 APP_NAME   := helix
 BUILD_DIR  := bin
@@ -10,6 +10,29 @@ GOFLAGS    := -ldflags="-s -w"
 # Build
 build:
 	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./$(CMD_DIR)
+
+# Dev: build and show info
+dev: build
+	@echo ""
+	@echo "启动方式:"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME)                          # 直接启动 TUI"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --session <id>           # 恢复会话"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --provider deepseek      # 指定 Provider"
+
+# TUI: build with dependency verification
+tui:
+	@echo "Building TUI binary..."
+	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./$(CMD_DIR)
+	@echo "TUI dependencies:"
+	@$(GO) list -m github.com/charmbracelet/bubbletea 2>/dev/null && echo "  ✓ Bubble Tea" || echo "  ✗ Bubble Tea not found"
+	@$(GO) list -m github.com/charmbracelet/lipgloss 2>/dev/null && echo "  ✓ Lip Gloss" || echo "  ✗ Lip Gloss not found"
+	@echo ""
+	@echo "TUI binary: $(BUILD_DIR)/$(APP_NAME)"
+	@ls -lh $(BUILD_DIR)/$(APP_NAME)
+
+# TUI run: build and start TUI
+tui-run: build
+	./$(BUILD_DIR)/$(APP_NAME)
 
 # Test
 test:
