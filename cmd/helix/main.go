@@ -9,12 +9,15 @@ import (
 	"os"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
 	"github.com/ShawnLiuSZ/Helix/internal/config"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/deepseek"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/openai"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/Helix/internal/ui"
 )
 
 // 构建时注入的版本信息
@@ -62,9 +65,11 @@ func main() {
 		runCommand(args[1:])
 	case "setup":
 		setupCommand()
+	case "chat", "tui":
+		chatCommand()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "Available commands: run, setup")
+		fmt.Fprintln(os.Stderr, "Available commands: run, setup, chat")
 		os.Exit(1)
 	}
 }
@@ -207,6 +212,14 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 		DefaultModel: provCfg.DefaultModel,
 		Models:       models,
 	})
+}
+
+func chatCommand() {
+	p := tea.NewProgram(ui.NewApp(), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func readStdin() string {
