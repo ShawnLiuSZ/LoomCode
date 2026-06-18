@@ -31,6 +31,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	}
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd.Env = EnvForSubprocess()
 	output, err := cmd.CombinedOutput()
 
 	result := &Result{Content: string(output)}
@@ -72,6 +73,7 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	}
 
 	cmd := exec.CommandContext(ctx, "grep", "-rn", pattern, path)
+	cmd.Env = EnvForSubprocess()
 	output, err := cmd.CombinedOutput()
 
 	content := string(output)
@@ -119,6 +121,7 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	}
 
 	cmd := exec.CommandContext(ctx, "find", path, "-name", pattern, "-type", "f")
+	cmd.Env = EnvForSubprocess()
 	output, err := cmd.CombinedOutput()
 
 	content := strings.TrimSpace(string(output))

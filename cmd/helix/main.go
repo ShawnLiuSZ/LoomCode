@@ -42,6 +42,9 @@ func main() {
 	// 加载 .env 文件
 	loadEnvFiles()
 
+	// 注册环境变量提供者（工具子进程使用）
+	tool.SetEnvProvider(&envProvider{})
+
 	args := flag.Args()
 
 	// 默认进入交互式 REPL（未来用 Bubble Tea 实现）
@@ -338,4 +341,11 @@ func ExportEnvToSubprocess() []string {
 	}
 
 	return filtered
+}
+
+// envProvider 实现 tool.EnvProvider 接口
+type envProvider struct{}
+
+func (p *envProvider) EnvForSubprocess() []string {
+	return ExportEnvToSubprocess()
 }

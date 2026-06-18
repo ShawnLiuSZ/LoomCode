@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -25,8 +26,11 @@ type Client struct {
 
 // NewClient 创建 MCP 客户端
 func NewClient(command string, args ...string) *Client {
+	cmd := exec.Command(command, args...)
+	// 继承关键环境变量（API keys 等）
+	cmd.Env = filterEnvForSubprocess()
 	return &Client{
-		cmd: exec.Command(command, args...),
+		cmd: cmd,
 	}
 }
 
@@ -157,6 +161,24 @@ func (c *Client) call(method string, params any) (*Response, error) {
 	}
 
 	return ParseResponse(line)
+}
+
+// filterEnvForSubprocess 过滤子进程所需的环境变量
+func filterEnvForSubprocess() []string {
+	keys := []string{
+		"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+		"PATH", "HOME", "USER", "LANG",
+	}
+	var filtered []string
+	for _, e := range os.Environ() {
+		for _, key := range keys {
+			if len(e) > len(key) && e[:len(key)+1] == key+"=" {
+				filtered = append(filtered, e)
+				break
+			}
+		}
+	}
+	return filtered
 }
 
 // sendNotification 发送通知（无响应）

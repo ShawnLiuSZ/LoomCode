@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -29,8 +30,10 @@ type ServerInfo struct {
 
 // NewClient 创建 LSP 客户端
 func NewClient(command string, args ...string) *Client {
+	cmd := exec.Command(command, args...)
+	cmd.Env = filterEnvForSubprocess()
 	return &Client{
-		cmd: exec.Command(command, args...),
+		cmd: cmd,
 	}
 }
 
@@ -294,4 +297,22 @@ func (c *Client) notify(method string, params any) {
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(notifData))
 	c.stdin.Write([]byte(header))
 	c.stdin.Write(notifData)
+}
+
+// filterEnvForSubprocess 过滤子进程所需的环境变量
+func filterEnvForSubprocess() []string {
+	keys := []string{
+		"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+		"PATH", "HOME", "USER", "LANG",
+	}
+	var filtered []string
+	for _, e := range os.Environ() {
+		for _, key := range keys {
+			if len(e) > len(key) && e[:len(key)+1] == key+"=" {
+				filtered = append(filtered, e)
+				break
+			}
+		}
+	}
+	return filtered
 }
