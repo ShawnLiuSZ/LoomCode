@@ -126,6 +126,25 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 func (a *App) SetSessionManager(mgr *session.Manager) { a.sessionMgr = mgr }
 func (a *App) SetModel(m string)                       { a.model = m; a.agent.SetModel(m) }
 
+// RestoreSession 恢复历史会话
+func (a *App) RestoreSession(sess *session.Session) {
+	a.activeSess = sess
+	a.messages = []chatMessage{
+		{Role: "system", Content: fmt.Sprintf("已恢复会话: %s (%d 条消息)", sess.Name, len(sess.Messages)), Timestamp: time.Now()},
+	}
+	for _, msg := range sess.Messages {
+		a.messages = append(a.messages, chatMessage{
+			Role:      msg.Role,
+			Content:   msg.Content,
+			ToolName:  msg.ToolName,
+			Timestamp: msg.Timestamp,
+		})
+	}
+	a.messages = append(a.messages, chatMessage{
+		Role: "system", Content: "会话已恢复，继续对话或输入 /help 查看命令", Timestamp: time.Now(),
+	})
+}
+
 func (a *App) Init() tea.Cmd { return tea.EnterAltScreen }
 
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,7 @@ import (
 	"github.com/ShawnLiuSZ/Helix/internal/provider/deepseek"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/mimo"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/openai"
+	"github.com/ShawnLiuSZ/Helix/internal/session"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 	"github.com/ShawnLiuSZ/Helix/internal/ui"
 )
@@ -33,6 +35,7 @@ var (
 	flagModel    = flag.String("model", "", "Model ID (e.g. deepseek-v4-flash)")
 	flagConfig   = flag.String("config", "", "Path to config file")
 	flagEnvFile  = flag.String("env-file", "", "Path to .env file to load")
+	flagSession  = flag.String("session", "", "Session ID to resume")
 	flagVersion  = flag.Bool("version", false, "Show version")
 )
 
@@ -48,21 +51,13 @@ func main() {
 
 	args := flag.Args()
 
-	// 默认进入交互式 REPL（未来用 Bubble Tea 实现）
+	// 默认：无参数直接启动 TUI
 	if len(args) == 0 {
 		if *flagVersion {
 			fmt.Printf("Helix CLI %s (commit: %s, built: %s)\n", version, commit, date)
 			return
 		}
-		fmt.Println("Helix CLI - 双螺旋 · 多模型 · 可扩展")
-		fmt.Println()
-		fmt.Println("Usage:")
-		fmt.Println("  helix run <task>     Run a single task")
-		fmt.Println("  helix setup          Run configuration wizard")
-		fmt.Println("  helix                Interactive REPL (coming soon)")
-		fmt.Println()
-		fmt.Println("Options:")
-		flag.PrintDefaults()
+		chatCommand()
 		return
 	}
 
@@ -237,34 +232,51 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 }
 
 func chatCommand() {
-	// 加载配置
 	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 选择 Provider
 	provCfg, err := selectProvider(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 创建 Provider
 	p, err := createProvider(provCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating provider: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 创建工具注册中心
 	tools := tool.NewRegistry()
 	tools.RegisterDefaults()
+
+	// 初始化会话管理器
+	home, _ := os.UserHomeDir()
+	sessionDir := filepath.Join(home, ".helix", "sessions")
+	sessionMgr, err := session.NewManager(sessionDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: session manager init failed: %v\n", err)
+	}
 
 	// 启动 TUI
 	app := ui.NewApp(p, tools)
 	app.SetModel(selectModel(provCfg))
+
+	if sessionMgr != nil {
+		app.SetSessionManager(sessionMgr)
+
+		// 如果指定了 --session，恢复该会话
+		if *flagSession != "" {
+			if sess, ok := sessionMgr.Get(*flagSession); ok {
+				app.RestoreSession(sess)
+			} else {
+				fmt.Fprintf(os.Stderr, "Warning: session %q not found, starting new session\n", *flagSession)
+			}
+		}
+	}
 
 	program := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
@@ -300,7 +312,12 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  helix [options] run <task>     Run a single task\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] setup          Run configuration wizard\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] chat           Interactive TUI\n")
-	fmt.Fprintf(os.Stderr, "  helix [options]                Show help\n\n")
+	fmt.Fprintf(os.Stderr, "  helix [options]                Start interactive TUI (default)\n\n")
+	fmt.Fprintf(os.Stderr, "Examples:\n")
+	fmt.Fprintf(os.Stderr, "  helix                                    Start TUI\n")
+	fmt.Fprintf(os.Stderr, "  helix --session session_1234567890       Resume session\n")
+	fmt.Fprintf(os.Stderr, "  helix --provider deepseek --model deepseek-v4-pro\n")
+	fmt.Fprintf(os.Stderr, "  helix run \"explain this code\"\n\n")
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
 }
