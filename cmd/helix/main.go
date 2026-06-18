@@ -38,6 +38,10 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
+	// 加载 .env 文件（项目 + 全局）
+	cwd, _ := os.Getwd()
+	config.LoadEnvFiles(cwd)
+
 	args := flag.Args()
 
 	// 默认进入交互式 REPL（未来用 Bubble Tea 实现）
@@ -135,6 +139,18 @@ func setupCommand() {
 	fmt.Println("Helix CLI Setup")
 	fmt.Println("===============")
 	fmt.Println()
+
+	// 创建 .env 模板
+	cwd, _ := os.Getwd()
+	if err := config.CreateEnvTemplate(cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create .env template: %v\n", err)
+	} else {
+		if _, err := os.Stat(cwd + "/.env"); err == nil {
+			fmt.Println(".env template created. Edit it to add your API keys.")
+		}
+	}
+
+	fmt.Println()
 	fmt.Println("To configure Helix, create a helix.toml file in your project directory.")
 	fmt.Println()
 	fmt.Println("Example:")
@@ -142,9 +158,9 @@ func setupCommand() {
 	fmt.Println("  cp helix.example.toml helix.toml")
 	fmt.Println("  # Edit helix.toml to add your API keys")
 	fmt.Println()
-	fmt.Println("Then set your API key environment variable:")
+	fmt.Println("Or set environment variables in .env:")
 	fmt.Println()
-	fmt.Println("  export DEEPSEEK_API_KEY=\"sk-...\"")
+	fmt.Println("  DEEPSEEK_API_KEY=sk-...")
 	fmt.Println()
 	fmt.Println("Run 'helix run \"hello\"' to test your setup.")
 }
