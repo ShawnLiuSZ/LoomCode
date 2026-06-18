@@ -551,18 +551,31 @@ func (a *App) renderInput() string {
 	prompt := fmt.Sprintf(" %s > ", a.mode.String())
 	full := prompt + a.input
 
-	// 光标位置
+	// 光标位置（正确处理多字节字符）
 	if len(a.input) > 0 {
-		cursorAt := len(prompt) + a.cursorPos
-		if cursorAt >= len(full) {
-			cursorAt = len(full) - 1
+		// 计算光标在完整字符串中的字节位置
+		cursorBytePos := len(prompt)
+		runes := []rune(a.input)
+		cp := a.cursorPos
+		if cp > len(runes) {
+			cp = len(runes)
 		}
-		if cursorAt >= 0 {
-			before := full[:cursorAt]
-			char := string(full[cursorAt])
+		for i := 0; i < cp; i++ {
+			cursorBytePos += len(string(runes[i]))
+		}
+		if cursorBytePos >= len(full) {
+			cursorBytePos = len(full) - 1
+		}
+		if cursorBytePos >= 0 && cursorBytePos < len(full) {
+			before := full[:cursorBytePos]
+			// 取光标位置的完整 rune
+			rest := full[cursorBytePos:]
+			charRunes := []rune(rest)
+			char := string(charRunes[0])
+			charByteLen := len(char)
 			after := ""
-			if cursorAt+1 < len(full) {
-				after = full[cursorAt+1:]
+			if cursorBytePos+charByteLen < len(full) {
+				after = full[cursorBytePos+charByteLen:]
 			}
 			full = before + cursorStyle.Render(char) + after
 		}
