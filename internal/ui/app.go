@@ -596,7 +596,12 @@ func (a *App) renderMessages(visibleLines int) string {
 		case "tool":
 			sb.WriteString(toolStyle.Render("  🔧 " + msg.Content))
 		case "error":
-			sb.WriteString(errorStyle.Render("  ✖ " + truncateStr(msg.Content, a.width-4)))
+			// 错误消息完整显示，多行展开
+			for _, line := range strings.Split(msg.Content, "\n") {
+				sb.WriteString(errorStyle.Render("  ✖ " + line))
+				sb.WriteString("\n")
+			}
+			continue
 		}
 		sb.WriteString("\n")
 	}
@@ -711,13 +716,6 @@ func splitIntoChunks(s string, size int) []string {
 		chunks = append(chunks, string(runes[i:end]))
 	}
 	return chunks
-}
-
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // 消息类型

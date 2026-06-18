@@ -1,69 +1,56 @@
-# Helix CLI 文档导航
+# Helix CLI 文档
 
-> 版本: v1.0 | 日期: 2026-06-18
+> 双螺旋 · 多模型 · 可扩展
+
+## 文档导航
+
+### 📚 Tutorials（学习教程）
+
+面向新手的实践步骤，帮助您从零开始使用 Helix。
+
+- [快速入门](tutorials/getting-started.md) - 5 分钟上手 Helix
+- [配置 Provider](tutorials/configuring-providers.md) - 设置 DeepSeek、OpenAI 等模型
+- [TUI 交互指南](tutorials/tui-guide.md) - 学习交互式界面操作
+
+### 📖 How-to Guides（使用指南）
+
+解决特定问题的实用配方。
+
+- [配置多 Provider](how-to/multiple-providers.md) - 同时使用多个 AI 模型
+- [自定义 Skills](how-to/custom-skills.md) - 创建和管理自定义技能
+- [会话管理](how-to/session-management.md) - 保存、恢复、管理对话历史
+- [环境变量管理](how-to/environment-variables.md) - 配置和管理 API 密钥
+
+### 📋 Reference（参考手册）
+
+技术细节的完整描述。
+
+- [CLI 命令参考](reference/cli-commands.md) - 所有命令行选项和参数
+- [配置文件格式](reference/config-format.md) - helix.toml 完整语法
+- [内置工具列表](reference/built-in-tools.md) - 所有内置工具及其参数
+- [Provider 接口](reference/provider-interface.md) - Provider 适配器开发指南
+- [MCP 插件协议](reference/mcp-protocol.md) - MCP 插件集成说明
+
+### 💡 Explanation（概念解释）
+
+帮助理解系统设计和架构。
+
+- [架构概览](explanation/architecture.md) - 系统整体设计
+- [Agent 模式](explanation/agent-modes.md) - Build/Plan/Compose/Max 模式详解
+- [工具执行引擎](explanation/tool-execution.md) - 工具调用的并行与串行机制
+- [安全模型](explanation/security.md) - 权限控制和沙箱机制
 
 ---
 
-## 文档索引
+## 快速链接
 
-### 项目级
-
-| 文档 | 说明 |
+| 资源 | 链接 |
 |------|------|
-| [README.md](../README.md) | 项目首页：设计哲学、技术栈、快速开始、项目状态 |
-| [CODEBUDDY.md](../CODEBUDDY.md) | 项目入口指南：概述、构建命令、架构概要、核心原则 |
-| [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献指南：开发流程、代码规范、PR 模板、文档贡献 |
-
-### 规划与设计
-
-| 文档 | 说明 |
-|------|------|
-| [HELIX_PLAN.md](./HELIX_PLAN.md) | 开发计划：Phase 1-4 分阶段任务、MVP 策略、开发顺序 |
-| [HELIX_ARCHITECTURE.md](./HELIX_ARCHITECTURE.md) | 架构设计：分层架构、模块职责、数据流、安全模型、技术选型 |
-
-### 测试
-
-| 文档 | 说明 |
-|------|------|
-| [HELIX_TEST_GUIDE.md](./HELIX_TEST_GUIDE.md) | 测试指南：规范、数据准备与清理、Mock/Stub 策略与示例 |
-| [HELIX_TEST_GENERATORS.md](./HELIX_TEST_GENERATORS.md) | 测试生成器：生成器三种方式、Provider/MemoryStore 集成示例 |
-
-### 其他
-
-| 文档 | 说明 |
-|------|------|
-| [CHANGELOG.md](./CHANGELOG.md) | 版本更新日志：按 Keep a Changelog 规范记录 |
+| GitHub | [ShawnLiuSZ/Helix](https://github.com/ShawnLiuSZ/Helix) |
+| 问题反馈 | [GitHub Issues](https://github.com/ShawnLiuSZ/Helix/issues) |
+| 贡献指南 | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| 许可证 | [MIT License](../LICENSE) |
 
 ---
 
-## 阅读路径
-
-### 新加入项目
-
-```
-CODEBUDDY.md → HELIX_PLAN.md → HELIX_ARCHITECTURE.md
-```
-
-### 开始贡献
-
-```
-CONTRIBUTING.md → CODEBUDDY.md（构建命令）→ HELIX_ARCHITECTURE.md（模块职责）
-```
-
-### 开始写代码
-
-```
-CODEBUDDY.md（构建命令）→ HELIX_ARCHITECTURE.md（模块职责）
-```
-
-### 编写测试
-
-```
-HELIX_TEST_GUIDE.md → HELIX_TEST_GENERATORS.md
-```
-
-### 接入新模型厂商
-
-```
-CODEBUDDY.md（Provider 扩展方式）→ HELIX_ARCHITECTURE.md（Provider 层设计）
-```
+*最后更新: 2026-06-18*
