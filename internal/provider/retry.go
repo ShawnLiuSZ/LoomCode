@@ -32,10 +32,20 @@ type RetryableHTTPClient struct {
 	config RetryConfig
 }
 
-// NewRetryableClient 创建重试客户端
+// NewRetryableClient 创建重试客户端（带连接池）
 func NewRetryableClient(timeout time.Duration) *RetryableHTTPClient {
+	transport := &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 5,
+		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false,
+	}
+
 	return &RetryableHTTPClient{
-		client: &http.Client{Timeout: timeout},
+		client: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
 		config: DefaultRetryConfig(),
 	}
 }
