@@ -14,6 +14,7 @@ import (
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/session"
+	"github.com/ShawnLiuSZ/Helix/internal/skills"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
 
@@ -55,6 +56,9 @@ type App struct {
 
 	// 环境变量
 	envVars map[string]string
+
+	// Skills
+	skillsMgr *skills.Manager
 
 	// 成本
 	costTotal   float64
@@ -110,12 +114,17 @@ var (
 func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	ag := agent.NewMultiAgent(p, tools)
 
+	// 加载 skills
+	skillsMgr := skills.NewManager()
+	skillsMgr.Load()
+
 	return &App{
-		agent:    ag,
-		provider: p,
-		tools:    tools,
-		mode:     agent.ModeBuild,
-		envVars:  loadEnvVars(),
+		agent:     ag,
+		provider:  p,
+		tools:     tools,
+		mode:      agent.ModeBuild,
+		envVars:   loadEnvVars(),
+		skillsMgr: skillsMgr,
 		messages: []chatMessage{
 			{Role: "system", Content: "Helix CLI — 双螺旋 · 多模型 · 可扩展", Timestamp: time.Now()},
 			{Role: "system", Content: "输入任务开始 | 输入 / 查看命令 | Tab 切换模式 | Ctrl+C 退出", Timestamp: time.Now()},
@@ -404,23 +413,32 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleSkillsCmd() (tea.Model, tea.Cmd) {
+	// 内置工具
 	tools := a.tools.List()
-	if len(tools) == 0 {
-		a.messages = append(a.messages, chatMessage{Role: "system", Content: "没有注册的工具"})
-		return a, nil
-	}
+	// 外部 skills
+	skillList := a.skillsMgr.List()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📦 可用工具 (%d):\n\n", len(tools)))
+	sb.WriteString(fmt.Sprintf("📦 内置工具 (%d):\n\n", len(tools)))
 	for _, t := range tools {
-		readOnly := ""
+		icon := "✏️"
 		if t.IsReadOnly() {
-			readOnly = " 📖"
-		} else {
-			readOnly = " ✏️"
+			icon = "📖"
 		}
-		sb.WriteString(fmt.Sprintf("  %s%s - %s\n", t.Name(), readOnly, t.Description()))
+		sb.WriteString(fmt.Sprintf("  %s %s - %s\n", icon, t.Name(), t.Description()))
 	}
+
+	if len(skillList) > 0 {
+		sb.WriteString(fmt.Sprintf("\n🧩 外部 Skills (%d):\n\n", len(skillList)))
+		for _, s := range skillList {
+			source := ""
+			if s.Source == "helix" {
+				source = " [helix]"
+			}
+			sb.WriteString(fmt.Sprintf("  📄 %s%s - %s\n", s.Name, source, s.Description))
+		}
+	}
+
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 	return a, nil
 }
