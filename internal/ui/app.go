@@ -554,33 +554,40 @@ func (a *App) renderInput() string {
 	prompt := fmt.Sprintf(" %s > ", a.mode.String())
 	full := prompt + a.input
 
-	// 光标位置（正确处理多字节字符）
-	if len(a.input) > 0 {
-		// 计算光标在完整字符串中的字节位置
-		cursorBytePos := len(prompt)
-		runes := []rune(a.input)
+	// 光标渲染：在 rune 位置后插入反色光标
+	if a.cursorPos >= 0 {
+		inputRunes := []rune(a.input)
 		cp := a.cursorPos
-		if cp > len(runes) {
-			cp = len(runes)
+		if cp > len(inputRunes) {
+			cp = len(inputRunes)
 		}
+
+		// 计算光标在 prompt 之后的字节偏移
+		cursorBytePos := len(prompt)
 		for i := 0; i < cp; i++ {
-			cursorBytePos += len(string(runes[i]))
+			cursorBytePos += len(string(inputRunes[i]))
 		}
-		if cursorBytePos >= len(full) {
-			cursorBytePos = len(full) - 1
-		}
-		if cursorBytePos >= 0 && cursorBytePos < len(full) {
+
+		if cursorBytePos >= 0 && cursorBytePos <= len(full) {
 			before := full[:cursorBytePos]
-			// 取光标位置的完整 rune
-			rest := full[cursorBytePos:]
-			charRunes := []rune(rest)
-			char := string(charRunes[0])
-			charByteLen := len(char)
-			after := ""
-			if cursorBytePos+charByteLen < len(full) {
-				after = full[cursorBytePos+charByteLen:]
+			after := full[cursorBytePos:]
+			// 如果光标在末尾，高亮一个空格作为光标指示
+			if cp == len(inputRunes) && len(inputRunes) > 0 {
+				full = before + cursorStyle.Render(" ") + after
+			} else if cursorBytePos < len(full) {
+				// 光标在字符上，高亮该字符
+				rest := full[cursorBytePos:]
+				charRunes := []rune(rest)
+				char := string(charRunes[0])
+				charByteLen := len(char)
+				afterChar := ""
+				if cursorBytePos+charByteLen < len(full) {
+					afterChar = full[cursorBytePos+charByteLen:]
+				}
+				full = before + cursorStyle.Render(char) + afterChar
+			} else {
+				full = before + cursorStyle.Render(" ") + after
 			}
-			full = before + cursorStyle.Render(char) + after
 		}
 	}
 
