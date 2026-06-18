@@ -10,18 +10,19 @@
 ### 新增
 - TUI 中文输入支持（IME 多字节字符）
 - 光标按 rune 宽度渲染，消除 CJK 乱码
-- `/model` 交互式选择器（↑↓ Enter Esc）
-- 模型列表从 Provider 动态获取，不再硬编码
+- `/model` 交互式模型选择器（↑↓ 移动、Enter 确认、Esc 取消）
+- `/model <name>` 直接切换指定模型
+- 模型列表从 Provider 动态获取，不再硬编码未接入厂商
 - Skills 自动加载（`~/.agents/skills` + `~/.helix/skills`）
-- `/skills` 显示内置工具 + 外部 skills
+- `/skills` 显示内置工具 + 外部 skills（含来源标记）
 - `--session <id>` 恢复历史会话
 - `./bin/helix` 无参数直接启动 TUI
 - `build.sh` 构建脚本（dev/release/tui/test）
 - `.gitignore` 覆盖所有构建产物
 
 ### 变更
-- 项目状态从 Planning 更新为 Active
-- 模型列表不再显示未接入的厂商
+- 移除硬编码模型列表（不再显示 gpt-4o、claude 等未接入厂商）
+- Provider 切换通过 CLI `--provider` 参数，非 TUI 命令
 
 ---
 
