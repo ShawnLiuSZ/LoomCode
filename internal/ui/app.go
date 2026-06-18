@@ -173,6 +173,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// 处理多字节字符（中文、日文等）
+	if msg.Type == tea.KeyRunes {
+		for _, r := range msg.Runes {
+			a.input += string(r)
+		}
+		a.cursorPos = len(a.input)
+		if strings.HasPrefix(a.input, "/") {
+			a.updateSuggestions()
+		}
+		return a, nil
+	}
+
 	key := msg.String()
 
 	// 命令联想模式
