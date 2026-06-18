@@ -17,10 +17,18 @@ import (
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
 
+// 构建时注入的版本信息
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 var (
 	flagProvider = flag.String("provider", "", "Provider name (e.g. deepseek, openai)")
 	flagModel    = flag.String("model", "", "Model ID (e.g. deepseek-v4-flash)")
 	flagConfig   = flag.String("config", "", "Path to config file")
+	flagVersion  = flag.Bool("version", false, "Show version")
 )
 
 func main() {
@@ -31,6 +39,10 @@ func main() {
 
 	// 默认进入交互式 REPL（未来用 Bubble Tea 实现）
 	if len(args) == 0 {
+		if *flagVersion {
+			fmt.Printf("Helix CLI %s (commit: %s, built: %s)\n", version, commit, date)
+			return
+		}
 		fmt.Println("Helix CLI - 双螺旋 · 多模型 · 可扩展")
 		fmt.Println()
 		fmt.Println("Usage:")

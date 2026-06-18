@@ -1,0 +1,74 @@
+# GoReleaser 配置
+# 文档: https://goreleaser.com
+
+version: 2
+
+project_name: helix
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: helix
+    main: ./cmd/helix
+    binary: helix
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: ['tar.gz']
+    name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: ['zip']
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ .Version }}-dev"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+release:
+  draft: true
+  prerelease: auto
+  footer: |
+    **Install:**
+    ```bash
+    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+    ```
+
+brews:
+  - name: helix
+    repository:
+      owner: ShawnLiuSZ
+      name: homebrew-helix
+    homepage: "https://github.com/ShawnLiuSZ/Helix"
+    description: "Helix CLI - 双螺旋 · 多模型 · 可扩展"
+    license: "MIT"
+    install: |
+      bin.install "helix"
+    test: |
+      system "#{bin}/helix --help"
