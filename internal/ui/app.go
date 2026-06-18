@@ -60,6 +60,11 @@ type App struct {
 	// Skills
 	skillsMgr *skills.Manager
 
+	// 模型选择状态
+	showModelPicker bool
+	modelList      []string
+	modelIdx       int
+
 	// 成本
 	costTotal   float64
 	costSession float64
@@ -80,14 +85,6 @@ type chatMessage struct {
 var allCommands = []string{
 	"/help", "/mode", "/build", "/plan", "/compose", "/max",
 	"/clear", "/cost", "/env", "/model", "/skills", "/sessions", "/quit",
-}
-
-// 模型列表
-var knownModels = []string{
-	"deepseek-v4-flash", "deepseek-v4-pro",
-	"mimo-v2.5-flash", "mimo-v2.5-pro",
-	"gpt-4o", "gpt-4o-mini",
-	"claude-sonnet-4-20250514",
 }
 
 // 样式
@@ -195,6 +192,31 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	key := msg.String()
+
+	// 模型选择器模式
+	if a.showModelPicker {
+		switch key {
+		case "down":
+			a.modelIdx = (a.modelIdx + 1) % len(a.modelList)
+			return a, nil
+		case "up":
+			a.modelIdx = (a.modelIdx - 1 + len(a.modelList)) % len(a.modelList)
+			return a, nil
+		case "enter":
+			if a.modelIdx >= 0 && a.modelIdx < len(a.modelList) {
+				a.model = a.modelList[a.modelIdx]
+				a.agent.SetModel(a.model)
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: fmt.Sprintf("模型切换为: %s", a.model),
+				})
+			}
+			a.showModelPicker = false
+			return a, nil
+		case "esc":
+			a.showModelPicker = false
+			return a, nil
+		}
+	}
 
 	// 命令联想模式
 	if a.showSuggestions {
@@ -390,17 +412,38 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 
 func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		// 显示当前模型和可用模型
+		// 从 Provider 动态获取模型列表
+		models := a.provider.Models()
+		if len(models) == 0 {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: "当前 Provider 没有注册模型"})
+			return a, nil
+		}
+
+		// 启动交互式模型选择器
+		a.modelList = make([]string, len(models))
+		for i, m := range models {
+			a.modelList[i] = m.ID
+		}
+		a.modelIdx = 0
+		for i, id := range a.modelList {
+			if id == a.model {
+				a.modelIdx = i
+				break
+			}
+		}
+		a.showModelPicker = true
+
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("当前模型: %s\n\n可用模型:\n", a.model))
-		for _, m := range knownModels {
+		sb.WriteString(fmt.Sprintf("选择模型 (↑↓ 移动, Enter 确认, Esc 取消):\n\n"))
+		sb.WriteString(fmt.Sprintf("当前: %s\n\n", a.model))
+		sb.WriteString("可用模型:\n")
+		for i, id := range a.modelList {
 			marker := "  "
-			if m == a.model {
+			if i == a.modelIdx {
 				marker = "▶ "
 			}
-			sb.WriteString(fmt.Sprintf("%s%s\n", marker, m))
+			sb.WriteString(fmt.Sprintf("%s%s\n", marker, id))
 		}
-		sb.WriteString("\n切换: /model <model-name>")
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 		return a, nil
 	}
