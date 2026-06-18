@@ -41,3 +41,7 @@ dist/
 
 # Helix specific
 .helix/
+
+# CodeBuddy local settings (contains tokens)
+.codebuddy/settings.local.json
+
