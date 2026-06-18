@@ -35,7 +35,7 @@ func TestAgent_MultiTurnToolCall(t *testing.T) {
 		if callCount == 1 {
 			return &provider.ChatResponse{
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "read_file", Args: map[string]any{"path": "/tmp/test.txt"}},
+					{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file"}, Args: map[string]any{"path": "/tmp/test.txt"}},
 				},
 			}, nil
 		}
@@ -67,7 +67,7 @@ func TestAgent_ToolCallWithError(t *testing.T) {
 		if callCount == 1 {
 			return &provider.ChatResponse{
 				ToolCalls: []provider.ToolCall{
-					{ID: "call_1", Name: "read_file", Args: map[string]any{"path": "/nonexistent"}},
+					{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file"}, Args: map[string]any{"path": "/nonexistent"}},
 				},
 			}, nil
 		}
@@ -93,7 +93,7 @@ func TestAgent_MaxSteps(t *testing.T) {
 	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 		return &provider.ChatResponse{
 			ToolCalls: []provider.ToolCall{
-				{ID: "call_1", Name: "read_file", Args: map[string]any{"path": "/tmp/test"}},
+				{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file"}, Args: map[string]any{"path": "/tmp/test"}},
 			},
 		}, nil
 	})
@@ -152,7 +152,7 @@ func TestAgent_GuardChain(t *testing.T) {
 	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 		return &provider.ChatResponse{
 			ToolCalls: []provider.ToolCall{
-				{ID: "call_1", Name: "read_file", Args: map[string]any{"path": "/tmp/test"}},
+				{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file"}, Args: map[string]any{"path": "/tmp/test"}},
 			},
 		}, nil
 	})

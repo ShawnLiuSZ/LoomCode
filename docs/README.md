@@ -40,6 +40,13 @@
 - [工具执行引擎](explanation/tool-execution.md) - 工具调用的并行与串行机制
 - [安全模型](explanation/security.md) - 权限控制和沙箱机制
 
+### 📝 项目审查
+
+代码质量与架构改进建议。
+
+- [审查建议文档](review-suggestions.md) - 10 个主要问题及修复建议
+- [功能完整性审查](feature-completeness-review.md) - 结合 MiMo/DeepSeek 官方文档的功能对比
+
 ---
 
 ## 快速链接

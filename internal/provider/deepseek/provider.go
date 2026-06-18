@@ -226,7 +226,7 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 			json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
 				ID:   tc.ID,
-				Name: tc.Function.Name,
+				Function: provider.ToolCallFunc{Name: tc.Function.Name},
 				Args: args,
 			})
 		}

@@ -127,8 +127,8 @@ func TestParseChatResponse_ToolCall(t *testing.T) {
 	if len(resp.ToolCalls) != 1 {
 		t.Fatalf("expected 1 tool call, got %d", len(resp.ToolCalls))
 	}
-	if resp.ToolCalls[0].Name != "read_file" {
-		t.Errorf("tool name = %q", resp.ToolCalls[0].Name)
+	if resp.ToolCalls[0].Function.Name != "read_file" {
+		t.Errorf("tool name = %q", resp.ToolCalls[0].Function.Name)
 	}
 	if resp.ToolCalls[0].ID != "call_1" {
 		t.Errorf("tool id = %q", resp.ToolCalls[0].ID)

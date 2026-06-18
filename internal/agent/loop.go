@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -61,15 +62,21 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			return "", fmt.Errorf("chat error (step %d): %w", step, err)
 		}
 
-		// 追加 assistant 消息
-		assistantMsg := provider.Message{Role: "assistant"}
-		if resp.Content != "" {
-			assistantMsg.Content = resp.Content
+	// 追加 assistant 消息（含 tool_calls）
+	assistantMsg := provider.Message{Role: "assistant"}
+	if resp.Content != "" {
+		assistantMsg.Content = resp.Content
+	}
+	if len(resp.ToolCalls) > 0 {
+		// 序列化 Args 到 Function.Arguments
+		for i := range resp.ToolCalls {
+			argsJSON, _ := json.Marshal(resp.ToolCalls[i].Args)
+			resp.ToolCalls[i].Function.Arguments = string(argsJSON)
+			resp.ToolCalls[i].Type = "function"
 		}
-		if len(resp.ToolCalls) > 0 {
-			assistantMsg.ToolCalls = resp.ToolCalls
-		}
-		a.messages = append(a.messages, assistantMsg)
+		assistantMsg.ToolCalls = resp.ToolCalls
+	}
+	a.messages = append(a.messages, assistantMsg)
 
 		// 无工具调用 → 返回最终答案
 		if len(resp.ToolCalls) == 0 {
@@ -102,7 +109,7 @@ func (a *Agent) executeTools(ctx context.Context, toolCalls []provider.ToolCall)
 	calls := make([]tool.Call, len(toolCalls))
 	for i, tc := range toolCalls {
 		calls[i] = tool.Call{
-			Name: tc.Name,
+			Name: tc.Function.Name,
 			Args: tc.Args,
 		}
 	}

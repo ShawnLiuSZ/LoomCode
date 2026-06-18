@@ -38,9 +38,16 @@ type ChatResponse struct {
 
 // ToolCall 工具调用
 type ToolCall struct {
-	ID   string
-	Name string
-	Args map[string]any
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
+	Function ToolCallFunc   `json:"function"`
+	Args     map[string]any `json:"-"` // 内部使用，不序列化
+}
+
+// ToolCallFunc 工具调用函数
+type ToolCallFunc struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // StreamEvent 流式事件
