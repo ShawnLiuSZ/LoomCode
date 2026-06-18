@@ -215,8 +215,36 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 }
 
 func chatCommand() {
-	p := tea.NewProgram(ui.NewApp(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	// 加载配置
+	cfg, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 选择 Provider
+	provCfg, err := selectProvider(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 创建 Provider
+	p, err := createProvider(provCfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating provider: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 创建工具注册中心
+	tools := tool.NewRegistry()
+	tools.RegisterDefaults()
+
+	// 启动 TUI
+	app := ui.NewApp(p, tools)
+
+	program := tea.NewProgram(app, tea.WithAltScreen())
+	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
