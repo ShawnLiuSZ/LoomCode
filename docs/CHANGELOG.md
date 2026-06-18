@@ -8,28 +8,78 @@
 ## [Unreleased]
 
 ### 新增
-- 项目初始化，确定技术选型与架构方向
-- 完成 DeepSeek-Reasonix 与 MiMo-Code 项目调研
-- 编写开发计划文档 (`HELIX_PLAN.md`)
-- 编写架构设计文档 (`HELIX_ARCHITECTURE.md`)
-- 编写测试指南 (`HELIX_TEST_GUIDE.md`)
-- 编写测试生成器指南 (`HELIX_TEST_GENERATORS.md`)
-- 建立项目文档导航索引 (`docs/README.md`)
+- TUI 中文输入支持（IME 多字节字符）
+- 光标按 rune 宽度渲染，消除 CJK 乱码
+- `/model` 交互式选择器（↑↓ Enter Esc）
+- 模型列表从 Provider 动态获取，不再硬编码
+- Skills 自动加载（`~/.agents/skills` + `~/.helix/skills`）
+- `/skills` 显示内置工具 + 外部 skills
+- `--session <id>` 恢复历史会话
+- `./bin/helix` 无参数直接启动 TUI
+- `build.sh` 构建脚本（dev/release/tui/test）
+- `.gitignore` 覆盖所有构建产物
 
 ### 变更
-- 确定项目名称为 Helix
-- 确定形态为纯 CLI 工具，暂不做桌面应用
-- 确定 Provider 层采用 Adapter 工厂模式实现可扩展
+- 项目状态从 Planning 更新为 Active
+- 模型列表不再显示未接入的厂商
 
 ---
 
 ## [0.1.0] - 2026-06-18
 
 ### 新增
-- 创建项目仓库，初始化 Go Module
-- 安装 Go 1.26.3 开发环境
-- 创建基础目录结构
-- 编写 `CODEBUDDY.md` 项目入口指南
+
+#### 核心框架
+- Go Module 初始化，目录结构搭建
+- TOML 配置系统（多 Provider 注册、环境变量注入）
+- Provider 适配器模式（OpenAI、DeepSeek、MiMo）
+- Agent 推理循环（多轮工具调用、流式输出）
+- 工具系统（read_file/write_file/edit_file/bash/grep/glob）
+- CLI 入口（run/setup/chat/pipe 模式）
+- Bubble Tea 交互式 TUI
+
+#### 安全与审批
+- 编辑门控三模式（review/auto/yolo）
+- Shell 命令白名单 + 危险命令拦截
+- 敏感文件保护（.env、credentials 等）
+- 成本控制器（flash-first 策略、绿/黄/红分级）
+
+#### 缓存与成本
+- 三层上下文分区（不可变前缀/追加日志/易变草稿）
+- 前缀缓存管理（SHA256、TTL、命中追踪）
+- 工具调用修复流水线（flatten/scavenge/truncation）
+- 并行工具调度（只读并行、写串行、信号量控制）
+
+#### 多 Agent 系统
+- 四模式 Agent（Build/Plan/Compose/Max）
+- 子 Agent 系统（spawn/run/cancel/parallel）
+- 会话管理器（JSONL 持久化、列表/切换/恢复）
+- Goal 停止条件 + Judge 模型评估
+
+#### 记忆系统
+- SQLite FTS5 全文搜索存储
+- 四层记忆体系（checkpoint/project/global/history）
+- Dream 知识提取 + Distill 模式识别
+- 上下文提示构建（注入 LLM 前缀）
+
+#### 插件与集成
+- MCP 客户端（JSON-RPC 2.0 over stdio）
+- LSP 客户端（completion/hover/definition/symbols）
+- 语音输入框架（ASR 接口 + MiMo 适配器）
+- 环境变量管理（.env 加载 + `/env` 命令）
+
+#### 工程化
+- Makefile + build.sh 构建脚本
+- GoReleaser 多平台发布配置
+- install.sh 一键安装脚本
+- `.gitignore` 构建产物排除
+- 235 个单元测试（15 个模块）
+
+### 变更
+- 确定项目名称为 Helix
+- 确定形态为纯 CLI 工具
+- Provider 层采用 Adapter 工厂模式
+- 测试辅助代码统一到 `internal/testutil/`
 
 ---
 
@@ -38,10 +88,7 @@
 | 阶段 | 版本 | 说明 |
 |------|------|------|
 | 规划与设计 | 0.x | 文档编写、技术验证 |
-| Phase 1 MVP | 0.1+ | 核心框架、基础 Agent |
-| Phase 2 缓存优化 | 0.2+ | 前缀缓存、成本控制 |
-| Phase 3 多 Agent | 0.3+ | 多模式、记忆系统 |
-| Phase 4 生态 | 0.4+ | Dream/Distill、MCP、LSP |
+| Phase 1-4 完成 | 0.1.0 | 全功能 MVP |
 | 正式发布 | 1.0.0 | 稳定可用版本 |
 
 ---
