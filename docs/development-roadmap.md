@@ -167,14 +167,14 @@ stop = "echo 'Session ended'"
 
 | 任务 | 来源 | 预计时间 | 状态 |
 |------|------|----------|------|
-| Web Dashboard | Reasonix | 5d | ⬜ |
+| Web Dashboard | Reasonix | 5d | ✅ 完成 |
 | Configurable Web Search | Reasonix | 2d | ✅ 完成 |
 | Semantic Index | Reasonix | 2d | ✅ 完成 |
 | /effort knob | Reasonix | 1d | ✅ 完成 |
 | Transcript replay | Reasonix | 1d | ✅ 完成 |
 | Event log | Reasonix | 1d | ✅ 完成 |
-| MCP HTTP SSE | MiMo-Code | 2d | ⬜ |
-| LSP 自动发现 | MiMo-Code | 2d | ⬜ |
+| MCP HTTP SSE | MiMo-Code | 2d | ✅ 完成 |
+| LSP 自动发现 | MiMo-Code | 2d | ✅ 完成 |
 
 ### 详细说明
 
