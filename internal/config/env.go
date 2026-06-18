@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -16,14 +17,20 @@ func LoadEnvFiles(projectDir string) error {
 	home, err := os.UserHomeDir()
 	if err == nil {
 		globalPath := filepath.Join(home, ".helix", ".env")
-		_ = loadEnvFile(globalPath)
+		if err := loadEnvFile(globalPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: failed to load global .env: %v", err)
+		}
 	}
 
 	projectPath := filepath.Join(projectDir, ".env")
-	_ = loadEnvFile(projectPath)
+	if err := loadEnvFile(projectPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to load project .env: %v", err)
+	}
 
 	localPath := filepath.Join(projectDir, ".env.local")
-	_ = loadEnvFile(localPath)
+	if err := loadEnvFile(localPath); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to load local .env: %v", err)
+	}
 
 	return nil
 }

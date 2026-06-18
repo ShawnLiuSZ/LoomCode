@@ -63,12 +63,11 @@ func (m *Manager) loadFromDir(dir, source string) {
 		desc := m.readDescription(skillPath)
 
 		// ~/.helix/skills 优先：如果已存在且当前是 agents 源，跳过
-		if existing, ok := m.skills[name]; ok {
+		if _, ok := m.skills[name]; ok {
 			if source == "agents" {
 				continue // helix 优先
 			}
 			// 否则覆盖（helix 覆盖 agents）
-			_ = existing
 		}
 
 		m.skills[name] = &Skill{

@@ -114,7 +114,6 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 		newContent = newContent[:idx] + newText + newContent[idx+len(oldText):]
 		count++
 	}
-	_ = count
 
 	if newContent == content {
 		return nil, fmt.Errorf("old_text not found in file")
@@ -124,7 +123,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 		return nil, fmt.Errorf("write file %q: %w", path, err)
 	}
 
-	return &Result{Content: fmt.Sprintf("File edited: %s", path)}, nil
+	return &Result{Content: fmt.Sprintf("File edited: %s (replaced %d occurrences)", path, count)}, nil
 }
 
 func findSubstring(s, sub string) int {

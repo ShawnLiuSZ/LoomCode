@@ -21,6 +21,7 @@ type Agent struct {
 	maxSteps  int
 	model     string
 	partition *contextpkg.Partition // 上下文分区（缓存感知）
+	goal      *GoalStopCondition   // 停止条件
 }
 
 // New 创建 Agent
@@ -36,6 +37,7 @@ func New(p provider.Provider, registry *tool.Registry) *Agent {
 		tools:     registry,
 		executor:  tool.NewExecutor(registry),
 		partition: contextpkg.NewPartition(ttl),
+		goal:      NewGoalStopCondition(p),
 		maxSteps:  10,
 	}
 }
@@ -45,6 +47,15 @@ func (a *Agent) SetMaxSteps(n int) { a.maxSteps = n }
 
 // SetModel 设置模型名
 func (a *Agent) SetModel(m string) { a.model = m }
+
+// SetGoal 设置停止条件
+func (a *Agent) SetGoal(goal string) { a.goal.SetGoal(goal) }
+
+// GetGoal 获取当前停止条件
+func (a *Agent) GetGoal() string { return a.goal.GetGoal() }
+
+// ClearGoal 清除停止条件
+func (a *Agent) ClearGoal() { a.goal.Clear() }
 
 // AddGuard 添加工具执行守卫
 func (a *Agent) AddGuard(g tool.Guard) { a.executor.AddGuard(g) }
@@ -190,24 +201,31 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			return "", fmt.Errorf("chat error (step %d): %w", step, err)
 		}
 
-	// 追加 assistant 消息（含 tool_calls）
-	assistantMsg := provider.Message{Role: "assistant"}
-	if resp.Content != "" {
-		assistantMsg.Content = resp.Content
-	}
-	if len(resp.ToolCalls) > 0 {
-		// 序列化 Args 到 Function.Arguments
-		for i := range resp.ToolCalls {
-			argsJSON, _ := json.Marshal(resp.ToolCalls[i].Args)
-			resp.ToolCalls[i].Function.Arguments = string(argsJSON)
-			resp.ToolCalls[i].Type = "function"
+		// 追加 assistant 消息（含 tool_calls）
+		assistantMsg := provider.Message{Role: "assistant"}
+		if resp.Content != "" {
+			assistantMsg.Content = resp.Content
 		}
-		assistantMsg.ToolCalls = resp.ToolCalls
-	}
-	a.messages = append(a.messages, assistantMsg)
+		if len(resp.ToolCalls) > 0 {
+			// 序列化 Args 到 Function.Arguments
+			for i := range resp.ToolCalls {
+				argsJSON, _ := json.Marshal(resp.ToolCalls[i].Args)
+				resp.ToolCalls[i].Function.Arguments = string(argsJSON)
+				resp.ToolCalls[i].Type = "function"
+			}
+			assistantMsg.ToolCalls = resp.ToolCalls
+		}
+		a.messages = append(a.messages, assistantMsg)
 
 		// 无工具调用 → 返回最终答案
 		if len(resp.ToolCalls) == 0 {
+			// 检查 Goal 是否达成
+			if a.goal.IsEnabled() {
+				achieved, _, evalErr := a.goal.Evaluate(ctx, a.messages)
+				if evalErr == nil && achieved {
+					return resp.Content, nil
+				}
+			}
 			return resp.Content, nil
 		}
 
@@ -226,6 +244,14 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 				Content:    content,
 				ToolCallID: tc.ID,
 			})
+		}
+
+		// 每 3 步评估一次 Goal（避免过于频繁）
+		if a.goal.IsEnabled() && (step+1)%3 == 0 {
+			achieved, reason, evalErr := a.goal.Evaluate(ctx, a.messages)
+			if evalErr == nil && achieved {
+				return fmt.Sprintf("Goal achieved: %s", reason), nil
+			}
 		}
 	}
 

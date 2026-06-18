@@ -129,8 +129,7 @@ func (a *Allowlist) isFileWriteAllowed(args map[string]any) bool {
 	}
 
 	// 检查敏感文件
-	if sensitive, pattern := a.CheckSensitive(path); sensitive {
-		_ = pattern
+	if sensitive, _ := a.CheckSensitive(path); sensitive {
 		return false // 敏感文件始终需要审批
 	}
 

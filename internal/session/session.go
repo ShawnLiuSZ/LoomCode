@@ -142,7 +142,10 @@ func (m *Manager) Delete(id string) error {
 		return fmt.Errorf("session %q not found", id)
 	}
 
-	os.Remove(s.filePath)
+	if err := os.Remove(s.filePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete session file: %w", err)
+	}
+
 	delete(m.sessions, id)
 	if m.activeID == id {
 		m.activeID = ""

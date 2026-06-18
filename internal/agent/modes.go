@@ -59,6 +59,7 @@ type MultiAgent struct {
 	model     string
 	maxSteps  int
 	messages  []provider.Message
+	goal      *GoalStopCondition
 
 	// Plan 模式：计划内容
 	plan string
@@ -75,6 +76,7 @@ func NewMultiAgent(p provider.Provider, registry *tool.Registry) *MultiAgent {
 		executor: tool.NewExecutor(registry),
 		mode:     ModeBuild,
 		maxSteps: 10,
+		goal:     NewGoalStopCondition(p),
 	}
 }
 
@@ -96,6 +98,21 @@ func (a *MultiAgent) SetMaxSteps(n int) {
 // SetModel 设置模型名
 func (a *MultiAgent) SetModel(m string) {
 	a.model = m
+}
+
+// SetGoal 设置停止条件
+func (a *MultiAgent) SetGoal(goal string) {
+	a.goal.SetGoal(goal)
+}
+
+// GetGoal 获取当前停止条件
+func (a *MultiAgent) GetGoal() string {
+	return a.goal.GetGoal()
+}
+
+// ClearGoal 清除停止条件
+func (a *MultiAgent) ClearGoal() {
+	a.goal.Clear()
 }
 
 // SetPlan 设置计划内容（Plan 模式）
@@ -137,6 +154,10 @@ func (a *MultiAgent) runBuild(ctx context.Context, task string) (string, error) 
 	ag := New(a.provider, a.tools)
 	ag.SetMaxSteps(a.maxSteps)
 	ag.SetModel(a.model)
+	// 传递 Goal 设置
+	if a.goal.IsEnabled() {
+		ag.SetGoal(a.goal.GetGoal())
+	}
 	return ag.Run(ctx, task)
 }
 

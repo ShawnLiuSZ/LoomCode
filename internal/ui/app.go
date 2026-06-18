@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -71,6 +72,7 @@ type App struct {
 	costLast    float64
 
 	// 流式输出缓冲
+	streamMu sync.Mutex
 	streamBuf string
 }
 
@@ -84,7 +86,7 @@ type chatMessage struct {
 // 所有可用命令
 var allCommands = []string{
 	"/help", "/mode", "/build", "/plan", "/compose", "/max",
-	"/clear", "/cost", "/env", "/model", "/skills", "/sessions", "/quit",
+	"/goal", "/clear", "/cost", "/env", "/model", "/skills", "/sessions", "/quit",
 }
 
 // 样式
@@ -162,12 +164,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return a.handleKey(msg)
 	case streamChunkMsg:
+		a.streamMu.Lock()
 		a.streamBuf += string(msg)
+		a.streamMu.Unlock()
 		return a, nil
 	case streamDoneMsg:
-		a.loading = false
-		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: a.streamBuf, Timestamp: time.Now()})
+		a.streamMu.Lock()
+		content := a.streamBuf
 		a.streamBuf = ""
+		a.streamMu.Unlock()
+		a.loading = false
+		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, Timestamp: time.Now()})
 		return a, nil
 	case streamErrorMsg:
 		a.loading = false
@@ -342,6 +349,7 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
   /plan      切换到 plan 模式(只读)
   /compose   切换到 compose 模式
   /max       切换到 max 模式(实验)
+  /goal      设置停止条件
   /model     显示/切换模型
   /skills    显示可用工具列表
   /clear     清空聊天
@@ -352,7 +360,12 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 
 💡 提示:
   Tab 切换模式 | 输入 / 后 Tab 联想命令
-  直接输入任务开始对话`
+  直接输入任务开始对话
+
+🎯 Goal/Stop Condition:
+  /goal "实现用户认证模块"  设置停止条件
+  /goal                      显示当前停止条件
+  /goal clear                清除停止条件`
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: help})
 		return a, nil
 
@@ -390,6 +403,9 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: "切换到 max 模式(实验)"})
 		return a, nil
 
+	case "/goal":
+		return a.handleGoalCmd(parts)
+
 	case "/clear":
 		a.messages = a.messages[:0]
 		return a, nil
@@ -408,6 +424,53 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		})
 		return a, nil
 	}
+}
+
+func (a *App) handleGoalCmd(parts []string) (tea.Model, tea.Cmd) {
+	// /goal - 显示当前停止条件
+	if len(parts) < 2 {
+		goal := a.agent.GetGoal()
+		if goal == "" {
+			a.messages = append(a.messages, chatMessage{
+				Role:    "system",
+				Content: "当前未设置停止条件。\n\n使用 /goal \"<条件>\" 设置停止条件。",
+			})
+		} else {
+			a.messages = append(a.messages, chatMessage{
+				Role:    "system",
+				Content: fmt.Sprintf("🎯 当前停止条件:\n%s\n\n使用 /goal clear 清除", goal),
+			})
+		}
+		return a, nil
+	}
+
+	// /goal clear - 清除停止条件
+	if parts[1] == "clear" {
+		a.agent.ClearGoal()
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: "✅ 已清除停止条件",
+		})
+		return a, nil
+	}
+
+	// /goal "..." - 设置停止条件
+	goal := strings.Join(parts[1:], " ")
+	goal = strings.Trim(goal, "\"'")
+	if goal == "" {
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: "请提供停止条件，例如: /goal \"实现用户认证模块\"",
+		})
+		return a, nil
+	}
+
+	a.agent.SetGoal(goal)
+	a.messages = append(a.messages, chatMessage{
+		Role:    "system",
+		Content: fmt.Sprintf("🎯 已设置停止条件:\n%s\n\nAgent 将在达成目标后自动停止。", goal),
+	})
+	return a, nil
 }
 
 func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {

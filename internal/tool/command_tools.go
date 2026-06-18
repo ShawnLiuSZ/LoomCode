@@ -8,7 +8,19 @@ import (
 )
 
 // BashTool Shell 命令执行工具
-type BashTool struct{}
+type BashTool struct {
+	permission PermissionChecker
+}
+
+// PermissionChecker 权限检查器接口
+type PermissionChecker interface {
+	Check(toolName string, args map[string]any) (allowed bool, reason string)
+}
+
+// SetPermissionChecker 设置权限检查器
+func (t *BashTool) SetPermissionChecker(checker PermissionChecker) {
+	t.permission = checker
+}
 
 func (t *BashTool) Name() string        { return "bash" }
 func (t *BashTool) Description() string { return "Execute a shell command" }
@@ -28,6 +40,13 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	command, _ := args["command"].(string)
 	if command == "" {
 		return nil, fmt.Errorf("command is required")
+	}
+
+	// 权限检查
+	if t.permission != nil {
+		if allowed, reason := t.permission.Check("bash", args); !allowed {
+			return nil, fmt.Errorf("command blocked: %s", reason)
+		}
 	}
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
@@ -122,13 +141,13 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	cmd := exec.CommandContext(ctx, "find", path, "-name", pattern, "-type", "f")
 	cmd.Env = EnvForSubprocess()
-	output, err := cmd.CombinedOutput()
+	output, _ := cmd.CombinedOutput()
 
 	content := strings.TrimSpace(string(output))
 	if len(content) == 0 {
 		content = fmt.Sprintf("No files matching '%s'", pattern)
 	}
-	_ = err
+	// find 命令在没有找到文件时会返回错误，这是正常情况
 
 	return &Result{Content: content}, nil
 }
