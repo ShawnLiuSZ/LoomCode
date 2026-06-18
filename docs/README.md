@@ -10,6 +10,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [README.md](../README.md) | 项目首页：设计哲学、技术栈、快速开始、项目状态 |
 | [CODEBUDDY.md](../CODEBUDDY.md) | 项目入口指南：概述、构建命令、架构概要、核心原则 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献指南：开发流程、代码规范、PR 模板、文档贡献 |
 
