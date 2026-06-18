@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -44,6 +45,12 @@ type App struct {
 	// 模式
 	mode        agent.Mode
 	modeDisplay string
+
+	// 环境变量
+	envVars     map[string]string
+	envEditing  bool
+	envEditKey  string
+	envEditVal  string
 
 	// 成本
 	costTotal   float64
@@ -87,6 +94,7 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 		provider: p,
 		tools:    tools,
 		mode:     agent.ModeBuild,
+		envVars:  loadEnvVars(),
 		messages: []chatMessage{
 			{Role: "system", Content: "Helix CLI — 双螺旋 · 多模型 · 可扩展", Timestamp: time.Now()},
 			{Role: "system", Content: "模式: build | /help 查看命令 | Ctrl+C 退出", Timestamp: time.Now()},
@@ -258,6 +266,9 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 			a.costSession, a.costLast, a.costTotal)
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: msg})
 		return a, nil
+
+	case "/env":
+		return a.handleEnvCommand(parts)
 
 	default:
 		a.messages = append(a.messages, chatMessage{
@@ -467,4 +478,124 @@ func listenStream(buf string) tea.Cmd {
 	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
 		return streamChunkMsg("")
 	})
+}
+
+// ============================================================
+// 环境变量管理
+// ============================================================
+
+// loadEnvVars 加载已知环境变量
+func loadEnvVars() map[string]string {
+	vars := make(map[string]string)
+	keys := []string{
+		"DEEPSEEK_API_KEY",
+		"MIMO_API_KEY",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+	}
+
+	for _, key := range keys {
+		if val := getEnv(key); val != "" {
+			vars[key] = maskValue(val)
+		}
+	}
+
+	return vars
+}
+
+func getEnv(key string) string {
+	return os.Getenv(key)
+}
+
+func maskValue(val string) string {
+	if len(val) <= 8 {
+		return strings.Repeat("*", len(val))
+	}
+	return val[:4] + strings.Repeat("*", len(val)-8) + val[len(val)-4:]
+}
+
+// handleEnvCommand 处理 /env 命令
+func (a *App) handleEnvCommand(parts []string) (tea.Model, tea.Cmd) {
+	if len(parts) < 2 {
+		// /env — 显示所有环境变量
+		return a.showEnvVars()
+	}
+
+	subCmd := parts[1]
+	switch subCmd {
+	case "set":
+		if len(parts) < 4 {
+			a.messages = append(a.messages, chatMessage{
+				Role:    "system",
+				Content: "Usage: /env set <KEY> <VALUE>",
+			})
+			return a, nil
+		}
+		key := parts[2]
+		val := strings.Join(parts[3:], " ")
+		return a.setEnvVar(key, val)
+
+	case "unset":
+		if len(parts) < 3 {
+			a.messages = append(a.messages, chatMessage{
+				Role:    "system",
+				Content: "Usage: /env unset <KEY>",
+			})
+			return a, nil
+		}
+		return a.unsetEnvVar(parts[2])
+
+	case "reload":
+		a.envVars = loadEnvVars()
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: "Environment variables reloaded",
+		})
+		return a, nil
+
+	default:
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: fmt.Sprintf("Unknown env command: %s. Use: /env [set|unset|reload]", subCmd),
+		})
+		return a, nil
+	}
+}
+
+func (a *App) showEnvVars() (tea.Model, tea.Cmd) {
+	if len(a.envVars) == 0 {
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: "No environment variables configured.\n\nUse /env set <KEY> <VALUE> to add one.\nCommon keys: DEEPSEEK_API_KEY, MIMO_API_KEY, OPENAI_API_KEY",
+		})
+		return a, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Environment Variables:\n\n")
+	for key, val := range a.envVars {
+		sb.WriteString(fmt.Sprintf("  %s = %s\n", key, val))
+	}
+	sb.WriteString("\nCommands: /env set <KEY> <VAL> | /env unset <KEY> | /env reload")
+
+	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+	return a, nil
+}
+
+func (a *App) setEnvVar(key, val string) (tea.Model, tea.Cmd) {
+	a.envVars[key] = maskValue(val)
+	a.messages = append(a.messages, chatMessage{
+		Role:    "system",
+		Content: fmt.Sprintf("Set %s = %s\n\nNote: This only affects the current TUI session. For permanent changes, set the environment variable in your shell profile.", key, maskValue(val)),
+	})
+	return a, nil
+}
+
+func (a *App) unsetEnvVar(key string) (tea.Model, tea.Cmd) {
+	delete(a.envVars, key)
+	a.messages = append(a.messages, chatMessage{
+		Role:    "system",
+		Content: fmt.Sprintf("Unset %s", key),
+	})
+	return a, nil
 }
