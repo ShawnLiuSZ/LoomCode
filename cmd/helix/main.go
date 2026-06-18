@@ -14,6 +14,7 @@ import (
 
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
 	"github.com/ShawnLiuSZ/Helix/internal/config"
+	"github.com/ShawnLiuSZ/Helix/internal/dashboard"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/deepseek"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/mimo"
@@ -70,9 +71,11 @@ func main() {
 		setupCommand()
 	case "chat", "tui":
 		chatCommand()
+	case "dashboard":
+		dashboardCommand()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "Available commands: run, setup, chat")
+		fmt.Fprintln(os.Stderr, "Available commands: run, setup, chat, dashboard")
 		os.Exit(1)
 	}
 }
@@ -369,4 +372,18 @@ type envProvider struct{}
 
 func (p *envProvider) EnvForSubprocess() []string {
 	return ExportEnvToSubprocess()
+}
+
+// dashboardCommand 启动 Web Dashboard
+func dashboardCommand() {
+	addr := ":8080"
+	if len(os.Args) > 2 {
+		addr = os.Args[2]
+	}
+
+	server := dashboard.NewServer(addr)
+	if err := server.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
