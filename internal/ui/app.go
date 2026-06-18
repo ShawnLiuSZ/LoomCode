@@ -107,6 +107,11 @@ func (a *App) SetSessionManager(mgr *session.Manager) {
 	a.sessionMgr = mgr
 }
 
+// SetModel 设置模型名
+func (a *App) SetModel(m string) {
+	a.agent.SetModel(m)
+}
+
 // Init 初始化
 func (a *App) Init() tea.Cmd {
 	return tea.Batch(

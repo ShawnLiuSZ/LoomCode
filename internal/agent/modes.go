@@ -56,6 +56,7 @@ type MultiAgent struct {
 	tools     *tool.Registry
 	executor  *tool.Executor
 	mode      Mode
+	model     string
 	maxSteps  int
 	messages  []provider.Message
 
@@ -92,6 +93,11 @@ func (a *MultiAgent) SetMaxSteps(n int) {
 	a.maxSteps = n
 }
 
+// SetModel 设置模型名
+func (a *MultiAgent) SetModel(m string) {
+	a.model = m
+}
+
 // SetPlan 设置计划内容（Plan 模式）
 func (a *MultiAgent) SetPlan(plan string) {
 	a.plan = plan
@@ -120,9 +126,10 @@ func (a *MultiAgent) Run(ctx context.Context, task string) (string, error) {
 
 // runBuild Build 模式：完整工具权限
 func (a *MultiAgent) runBuild(ctx context.Context, task string) (string, error) {
-	agent := New(a.provider, a.tools)
-	agent.SetMaxSteps(a.maxSteps)
-	return agent.Run(ctx, task)
+	ag := New(a.provider, a.tools)
+	ag.SetMaxSteps(a.maxSteps)
+	ag.SetModel(a.model)
+	return ag.Run(ctx, task)
 }
 
 // runPlan Plan 模式：只读分析，不执行写操作

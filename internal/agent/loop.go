@@ -16,6 +16,7 @@ type Agent struct {
 	executor *tool.Executor
 	messages []provider.Message
 	maxSteps int
+	model    string
 }
 
 // New 创建 Agent
@@ -30,6 +31,9 @@ func New(p provider.Provider, registry *tool.Registry) *Agent {
 
 // SetMaxSteps 设置最大推理步数
 func (a *Agent) SetMaxSteps(n int) { a.maxSteps = n }
+
+// SetModel 设置模型名
+func (a *Agent) SetModel(m string) { a.model = m }
 
 // AddGuard 添加工具执行守卫
 func (a *Agent) AddGuard(g tool.Guard) { a.executor.AddGuard(g) }
@@ -49,7 +53,7 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 		}
 
 		resp, err := a.provider.Chat(ctx, &provider.ChatRequest{
-			Model:    "", // 使用 Provider 默认模型
+			Model:    a.model,
 			Messages: a.messages,
 			Tools:    a.buildToolDefs(),
 		})
@@ -61,6 +65,9 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 		assistantMsg := provider.Message{Role: "assistant"}
 		if resp.Content != "" {
 			assistantMsg.Content = resp.Content
+		}
+		if len(resp.ToolCalls) > 0 {
+			assistantMsg.ToolCalls = resp.ToolCalls
 		}
 		a.messages = append(a.messages, assistantMsg)
 
@@ -80,10 +87,10 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 				content = fmt.Sprintf("Error: %s", result.Error)
 			}
 			a.messages = append(a.messages, provider.Message{
-				Role:    "tool",
-				Content: content,
+				Role:       "tool",
+				Content:    content,
+				ToolCallID: tc.ID,
 			})
-			_ = tc
 		}
 	}
 

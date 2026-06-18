@@ -124,6 +124,7 @@ func runCommand(args []string) {
 	// 创建 Agent
 	ag := agent.New(p, tools)
 	ag.SetMaxSteps(20)
+	ag.SetModel(selectModel(provCfg))
 
 	// 执行任务
 	fmt.Fprintf(os.Stderr, "Running with %s/%s...\n", provCfg.Name, selectModel(provCfg))
@@ -263,6 +264,7 @@ func chatCommand() {
 
 	// 启动 TUI
 	app := ui.NewApp(p, tools)
+	app.SetModel(selectModel(provCfg))
 
 	program := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
