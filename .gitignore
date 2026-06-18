@@ -28,7 +28,7 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# Build artifacts
+# Build artifacts (GoReleaser)
 dist/
 
 # Environment
