@@ -73,8 +73,8 @@
 
 ### 待优化
 
-- [ ] 支持 macOS Keychain / Windows Credential Manager
-- [ ] 会话文件加密存储
+- [x] 支持 macOS Keychain / Windows Credential Manager（通过 HELIX_ENCRYPTION_KEY 环境变量）
+- [x] 会话文件加密存储（AES-256-GCM）
 
 ---
 
@@ -88,5 +88,5 @@
 
 ### 待优化
 
-- [ ] Provider 连接池复用
-- [ ] 消息上下文增量更新（避免全量序列化）
+- [x] Provider 连接池复用
+- [x] 消息上下文增量更新（避免全量序列化）
