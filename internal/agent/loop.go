@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
-	contextpkg "github.com/ShawnLiuSZ/Helix/internal/context"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/skills"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
@@ -21,25 +19,17 @@ type Agent struct {
 	messages  []provider.Message
 	maxSteps  int
 	model     string
-	partition *contextpkg.Partition // 上下文分区（缓存感知）
-	goal      *GoalStopCondition   // 停止条件
-	skillsMgr *skills.Manager      // Skills 管理器
-	onCost    func(float64)        // 成本回调
+	goal      *GoalStopCondition // 停止条件
+	skillsMgr *skills.Manager    // Skills 管理器
+	onCost    func(float64)      // 成本回调
 }
 
 // New 创建 Agent
 func New(p provider.Provider, registry *tool.Registry) *Agent {
-	caps := p.Capabilities()
-	ttl := caps.CacheTTL
-	if ttl == 0 {
-		ttl = 5 * time.Minute // 默认 5 分钟
-	}
-
 	return &Agent{
 		provider:  p,
 		tools:     registry,
 		executor:  tool.NewExecutor(registry),
-		partition: contextpkg.NewPartition(ttl),
 		goal:      NewGoalStopCondition(p),
 		maxSteps:  10,
 	}
@@ -138,13 +128,11 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 		defer close(errCh)
 
 		sysPrompt := a.buildSystemPrompt()
-		a.partition.SetPrefix(sysPrompt)
 
 		a.messages = []provider.Message{
 			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: task},
 		}
-		a.partition.AppendLog(contextpkg.LogEntry{Role: "user", Content: task})
 
 		for step := 0; step < a.maxSteps; step++ {
 			select {
@@ -266,13 +254,11 @@ func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
 
 func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 	sysPrompt := a.buildSystemPrompt()
-	a.partition.SetPrefix(sysPrompt)
 
 	a.messages = []provider.Message{
 		{Role: "system", Content: sysPrompt},
 		{Role: "user", Content: task},
 	}
-	a.partition.AppendLog(contextpkg.LogEntry{Role: "user", Content: task})
 
 	for step := 0; step < a.maxSteps; step++ {
 		select {
@@ -312,10 +298,6 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			assistantMsg.ToolCalls = resp.ToolCalls
 		}
 		a.messages = append(a.messages, assistantMsg)
-		a.partition.AppendLog(contextpkg.LogEntry{
-			Role:    "assistant",
-			Content: resp.Content,
-		})
 
 		// 无工具调用 → 返回最终答案
 		if len(resp.ToolCalls) == 0 {
@@ -342,10 +324,6 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 				Role:       "tool",
 				Content:    content,
 				ToolCallID: tc.ID,
-			})
-			a.partition.AppendLog(contextpkg.LogEntry{
-				Role:    "tool_result",
-				Content: content,
 			})
 		}
 
