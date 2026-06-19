@@ -281,6 +281,9 @@ func (a *Agent) buildSystemPrompt() string {
 
 // buildToolDefs 构建工具定义列表
 func (a *Agent) buildToolDefs() []provider.ToolDef {
+	if a.tools == nil {
+		return nil
+	}
 	tools := a.tools.List()
 	defs := make([]provider.ToolDef, 0, len(tools))
 	for _, t := range tools {
