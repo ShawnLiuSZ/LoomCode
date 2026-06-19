@@ -268,8 +268,8 @@ func (a *Agent) SetEffort(level EffortLevel) {
 
 | 任务 | 预计时间 | 状态 |
 |------|----------|------|
-| Multi Provider 负载均衡 | 3d | ⬜ |
-| 分布式 Agent 协作 | 1w | ⬜ |
+| Multi Provider 负载均衡 | 3d | ✅ 完成 |
+| 分布式 Agent 协作 | 1w | ✅ 完成 |
 | Desktop Client (Tauri) | 2w | ⬜ |
 | VS Code 扩展 | 2w | ⬜ |
 
