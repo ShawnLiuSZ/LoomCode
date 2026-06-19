@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/Helix/internal/skills"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
 
@@ -60,6 +61,8 @@ type MultiAgent struct {
 	maxSteps  int
 	messages  []provider.Message
 	goal      *GoalStopCondition
+	skillsMgr *skills.Manager
+	onCost    func(float64)
 
 	// Plan 模式：计划内容
 	plan string
@@ -98,6 +101,16 @@ func (a *MultiAgent) SetMaxSteps(n int) {
 // SetModel 设置模型名
 func (a *MultiAgent) SetModel(m string) {
 	a.model = m
+}
+
+// SetSkillsManager 设置 Skills 管理器
+func (a *MultiAgent) SetSkillsManager(mgr *skills.Manager) {
+	a.skillsMgr = mgr
+}
+
+// SetCostCallback 设置成本回调
+func (a *MultiAgent) SetCostCallback(fn func(float64)) {
+	a.onCost = fn
 }
 
 // SetGoal 设置停止条件
@@ -146,6 +159,12 @@ func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan string,
 	ag := New(a.provider, a.tools)
 	ag.SetMaxSteps(a.maxSteps)
 	ag.SetModel(a.model)
+	if a.skillsMgr != nil {
+		ag.SetSkillsManager(a.skillsMgr)
+	}
+	if a.onCost != nil {
+		ag.SetCostCallback(a.onCost)
+	}
 	return ag.RunStream(ctx, task)
 }
 
@@ -154,7 +173,12 @@ func (a *MultiAgent) runBuild(ctx context.Context, task string) (string, error) 
 	ag := New(a.provider, a.tools)
 	ag.SetMaxSteps(a.maxSteps)
 	ag.SetModel(a.model)
-	// 传递 Goal 设置
+	if a.skillsMgr != nil {
+		ag.SetSkillsManager(a.skillsMgr)
+	}
+	if a.onCost != nil {
+		ag.SetCostCallback(a.onCost)
+	}
 	if a.goal.IsEnabled() {
 		ag.SetGoal(a.goal.GetGoal())
 	}
@@ -235,14 +259,32 @@ func (a *MultiAgent) runMax(ctx context.Context, task string) (string, error) {
 		candidateResults[r.index] = r.content
 	}
 
-	// 简单策略：返回最长的非空结果
+	// 启发式选优：优先选非错误、非空的最长结果
 	var best string
+	var bestScore int
 	for _, r := range candidateResults {
-		if len(r) > len(best) {
+		if r == "" {
+			continue
+		}
+		score := len(r)
+		// 非错误结果加分
+		if !strings.HasPrefix(r, "[error:") {
+			score += 10000
+		}
+		// 包含实际内容（非纯空格/换行）加分
+		trimmed := strings.TrimSpace(r)
+		if len(trimmed) > 0 {
+			score += 1000
+		}
+		if score > bestScore {
+			bestScore = score
 			best = r
 		}
 	}
 
+	if best == "" {
+		return "", fmt.Errorf("all %d candidates failed or returned empty", candidates)
+	}
 	return best, nil
 }
 

@@ -170,12 +170,13 @@ func extractReason(content, prefix string) string {
 	return prefix
 }
 
-// truncate 截断字符串
+// truncate 截断字符串（按 rune 边界）
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }
 
 // judgeSystemPrompt judge 模型系统提示

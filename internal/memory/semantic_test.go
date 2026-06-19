@@ -236,7 +236,7 @@ func TestCosineSimilarity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := cosineSimilarity(tt.a, tt.b)
+			result := dotProduct(tt.a, tt.b)
 			if result != tt.expected {
 				t.Errorf("expected %f, got %f", tt.expected, result)
 			}

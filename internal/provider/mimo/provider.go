@@ -89,7 +89,16 @@ func (p *MiMoProvider) Cost(modelID string, usage provider.Usage) provider.Cost 
 		}
 	}
 
-	inputCost := float64(usage.PromptTokens) / 1_000_000 * modelCost.Input
+	uncachedTokens := usage.PromptTokens - usage.CachedInputTokens
+	if uncachedTokens < 0 {
+		uncachedTokens = usage.PromptTokens
+	}
+	cachedRate := modelCost.CachedInput
+	if cachedRate == 0 {
+		cachedRate = modelCost.Input
+	}
+	inputCost := float64(uncachedTokens)/1_000_000*modelCost.Input +
+		float64(usage.CachedInputTokens)/1_000_000*cachedRate
 	outputCost := float64(usage.CompletionTokens) / 1_000_000 * modelCost.Output
 
 	return provider.Cost{
@@ -163,7 +172,7 @@ func (p *MiMoProvider) Stream(ctx context.Context, req *provider.ChatRequest) (<
 	}
 
 	ch := make(chan provider.StreamEvent, 100)
-	go p.readSSEStream(resp, ch)
+	go p.readSSEStream(ctx, resp, ch)
 
 	return ch, nil
 }
@@ -236,81 +245,11 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 }
 
 // readSSEStream 读取 SSE 流
-func (p *MiMoProvider) readSSEStream(resp *http.Response, ch chan<- provider.StreamEvent) {
-	defer close(ch)
-	defer resp.Body.Close()
-
-	reader := newLineReader(resp.Body)
-	for {
-		line, err := reader.ReadLine()
-		if err != nil {
-			if err == io.EOF {
-				ch <- provider.StreamEvent{Type: provider.EventDone}
-				return
-			}
-			ch <- provider.StreamEvent{Type: provider.EventError, Content: err.Error()}
-			return
-		}
-
-		if line == "" || line[0] == ':' {
-			continue
-		}
-
-		data, ok := bytes.CutPrefix([]byte(line), []byte("data: "))
-		if !ok {
-			data, ok = bytes.CutPrefix([]byte(line), []byte("data:"))
-			if !ok {
-				continue
-			}
-		}
-
-		if bytes.Equal(data, []byte("[DONE]")) {
-			ch <- provider.StreamEvent{Type: provider.EventDone}
-			return
-		}
-
-		var chunk struct {
-			Choices []struct {
-				Delta struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
-						ID       string `json:"id"`
-						Function struct {
-							Name      string `json:"name"`
-							Arguments string `json:"arguments"`
-						} `json:"function"`
-					} `json:"tool_calls"`
-				} `json:"delta"`
-			} `json:"choices"`
-			Usage *provider.Usage `json:"usage"`
-		}
-
-		if err := json.Unmarshal(data, &chunk); err != nil {
-			continue
-		}
-
-		if len(chunk.Choices) > 0 {
-			delta := chunk.Choices[0].Delta
-			if delta.Content != "" {
-				ch <- provider.StreamEvent{Type: provider.EventText, Content: delta.Content}
-			}
-			if len(delta.ToolCalls) > 0 {
-				tc := delta.ToolCalls[0]
-				ch <- provider.StreamEvent{
-					Type: provider.EventToolCall,
-					ToolCall: &provider.ToolCallDelta{
-						ID:        tc.ID,
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				}
-			}
-		}
-
-		if chunk.Usage != nil {
-			ch <- provider.StreamEvent{Type: provider.EventDone, Usage: chunk.Usage}
-		}
-	}
+func (p *MiMoProvider) readSSEStream(ctx context.Context, resp *http.Response, ch chan<- provider.StreamEvent) {
+	provider.ReadSSEStream(ctx, resp, ch, func(data []byte) (string, []provider.ToolCallDelta, *provider.Usage, map[string]any, bool, error) {
+		content, toolCalls, usage, _ := provider.ParseStandardChunk(data)
+		return content, toolCalls, usage, nil, false, nil
+	})
 }
 
 // lineReader 行读��器

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,6 +15,7 @@ import (
 // EmbeddingProvider 嵌入提供者接口
 type EmbeddingProvider interface {
 	Embed(ctx context.Context, text string) ([]float64, error)
+	EmbedBatch(ctx context.Context, texts []string) ([][]float64, error)
 }
 
 // Document 文档
@@ -36,6 +38,7 @@ type SemanticIndex struct {
 	documents   map[string]*Document
 	embeddings  EmbeddingProvider
 	dimensions  int
+	embedCache  map[string][]float64 // content hash → cached embedding
 }
 
 // NewSemanticIndex 创建语义索引
@@ -47,7 +50,28 @@ func NewSemanticIndex(embeddings EmbeddingProvider, dimensions int) *SemanticInd
 		documents:  make(map[string]*Document),
 		embeddings: embeddings,
 		dimensions: dimensions,
+		embedCache: make(map[string][]float64),
 	}
+}
+
+// contentHash 计算内容的哈希用于缓存键
+func contentHash(text string) string {
+	h := sha256.Sum256([]byte(text))
+	return fmt.Sprintf("%x", h[:16])
+}
+
+// getEmbed 获取嵌入向量（带缓存）
+func (idx *SemanticIndex) getEmbed(ctx context.Context, text string) ([]float64, error) {
+	hash := contentHash(text)
+	if cached, ok := idx.embedCache[hash]; ok {
+		return cached, nil
+	}
+	vector, err := idx.embeddings.Embed(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	idx.embedCache[hash] = vector
+	return vector, nil
 }
 
 // Add 添加文档
@@ -56,13 +80,12 @@ func (idx *SemanticIndex) Add(ctx context.Context, doc *Document) error {
 		return fmt.Errorf("document ID is required")
 	}
 
-	// 生成嵌入向量
-	vector, err := idx.embeddings.Embed(ctx, doc.Content)
+	vector, err := idx.getEmbed(ctx, doc.Content)
 	if err != nil {
 		return fmt.Errorf("embed document: %w", err)
 	}
 
-	doc.Vector = vector
+	doc.Vector = normalizeVector(vector)
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -71,12 +94,47 @@ func (idx *SemanticIndex) Add(ctx context.Context, doc *Document) error {
 	return nil
 }
 
-// AddBatch 批量添加文档
+// AddBatch 批量添加文档（使用 EmbedBatch 减少 HTTP 调用）
 func (idx *SemanticIndex) AddBatch(ctx context.Context, docs []*Document) error {
-	for _, doc := range docs {
-		if err := idx.Add(ctx, doc); err != nil {
-			return err
+	texts := make([]string, len(docs))
+	for i, doc := range docs {
+		texts[i] = doc.Content
+	}
+
+	// 检查缓存，只 embed 未缓存的
+	toEmbed := make([]int, 0)
+	uncachedTexts := make([]string, 0)
+	for i, text := range texts {
+		hash := contentHash(text)
+		if _, ok := idx.embedCache[hash]; !ok {
+			toEmbed = append(toEmbed, i)
+			uncachedTexts = append(uncachedTexts, text)
 		}
+	}
+
+	// 批量 embed 未缓存的
+	if len(uncachedTexts) > 0 {
+		vectors, err := idx.embeddings.EmbedBatch(ctx, uncachedTexts)
+		if err != nil {
+			return fmt.Errorf("embed batch: %w", err)
+		}
+		for j, i := range toEmbed {
+			hash := contentHash(texts[i])
+			idx.embedCache[hash] = vectors[j]
+		}
+	}
+
+	// 分配向量
+	for i, doc := range docs {
+		hash := contentHash(texts[i])
+		doc.Vector = normalizeVector(idx.embedCache[hash])
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	for _, doc := range docs {
+		idx.documents[doc.ID] = doc
 	}
 	return nil
 }
@@ -104,22 +162,21 @@ func (idx *SemanticIndex) Delete(id string) bool {
 
 // Search 搜索相似文档
 func (idx *SemanticIndex) Search(ctx context.Context, query string, topK int) ([]SearchResult, error) {
-	// 生成查询向量
-	queryVector, err := idx.embeddings.Embed(ctx, query)
+	queryVector, err := idx.getEmbed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
+	queryVector = normalizeVector(queryVector)
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	// 计算相似度
 	var results []SearchResult
 	for _, doc := range idx.documents {
 		if doc.Vector == nil {
 			continue
 		}
-		score := cosineSimilarity(queryVector, doc.Vector)
+		score := dotProduct(queryVector, doc.Vector)
 		results = append(results, SearchResult{
 			Document: doc,
 			Score:    score,
@@ -179,24 +236,33 @@ func (idx *SemanticIndex) Load(path string) error {
 	return json.Unmarshal(data, &idx.documents)
 }
 
-// cosineSimilarity 计算余弦相似度
-func cosineSimilarity(a, b []float64) float64 {
+// normalizeVector 归一化向量（L2 norm = 1）
+func normalizeVector(v []float64) []float64 {
+	var norm float64
+	for _, x := range v {
+		norm += x * x
+	}
+	if norm == 0 {
+		return v
+	}
+	norm = math.Sqrt(norm)
+	result := make([]float64, len(v))
+	for i, x := range v {
+		result[i] = x / norm
+	}
+	return result
+}
+
+// dotProduct 计算点积（预归一化向量的余弦相似度）
+func dotProduct(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0
 	}
-
-	var dotProduct, normA, normB float64
+	var sum float64
 	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
+		sum += a[i] * b[i]
 	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+	return sum
 }
 
 // MockEmbeddings 模拟嵌入提供者（用于测试）
@@ -211,13 +277,25 @@ func NewMockEmbeddings(dimensions int) *MockEmbeddings {
 
 // Embed 生成模拟嵌入向量
 func (m *MockEmbeddings) Embed(ctx context.Context, text string) ([]float64, error) {
-	// 简单的哈希函数生成伪随机向量
 	vector := make([]float64, m.dimensions)
 	hash := simpleHash(text)
 	for i := range vector {
 		vector[i] = math.Sin(hash+float64(i)*31) * 0.5
 	}
 	return vector, nil
+}
+
+// EmbedBatch 批量生成模拟嵌入向量
+func (m *MockEmbeddings) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {
+	result := make([][]float64, len(texts))
+	for i, text := range texts {
+		vector, err := m.Embed(ctx, text)
+		if err != nil {
+			return nil, err
+		}
+		result[i] = vector
+	}
+	return result, nil
 }
 
 // simpleHash 简单哈希函数
@@ -273,28 +351,26 @@ func (idx *SemanticIndex) FilterByMetadata(key, value string) []*Document {
 
 // SearchWithFilter 带过滤的搜索
 func (idx *SemanticIndex) SearchWithFilter(ctx context.Context, query string, topK int, filterKey, filterValue string) ([]SearchResult, error) {
-	// 生成查询向量
-	queryVector, err := idx.embeddings.Embed(ctx, query)
+	queryVector, err := idx.getEmbed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
+	queryVector = normalizeVector(queryVector)
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	// 计算相似度（带过滤）
 	var results []SearchResult
 	for _, doc := range idx.documents {
 		if doc.Vector == nil {
 			continue
 		}
 
-		// 应用过滤器
 		if filterKey != "" && doc.Metadata != nil && doc.Metadata[filterKey] != filterValue {
 			continue
 		}
 
-		score := cosineSimilarity(queryVector, doc.Vector)
+		score := dotProduct(queryVector, doc.Vector)
 		results = append(results, SearchResult{
 			Document: doc,
 			Score:    score,

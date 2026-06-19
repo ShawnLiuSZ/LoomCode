@@ -34,26 +34,30 @@ type RetryableHTTPClient struct {
 
 // NewRetryableClient 创建重试客户端（带连接池）
 func NewRetryableClient(timeout time.Duration) *RetryableHTTPClient {
-	transport := &http.Transport{
-		MaxIdleConns:        20,
-		MaxIdleConnsPerHost: 5,
-		IdleConnTimeout:     90 * time.Second,
-		DisableKeepAlives:   false,
-	}
-
 	return &RetryableHTTPClient{
 		client: &http.Client{
 			Timeout:   timeout,
-			Transport: transport,
+			Transport: defaultTransport,
 		},
 		config: DefaultRetryConfig(),
 	}
 }
 
+// defaultTransport 共享的连接池 Transport
+var defaultTransport = &http.Transport{
+	MaxIdleConns:        20,
+	MaxIdleConnsPerHost: 10,
+	IdleConnTimeout:     90 * time.Second,
+	DisableKeepAlives:   false,
+}
+
 // NewRetryableClientWithConfig 创建带配置的重试客户端
 func NewRetryableClientWithConfig(timeout time.Duration, cfg RetryConfig) *RetryableHTTPClient {
 	return &RetryableHTTPClient{
-		client: &http.Client{Timeout: timeout},
+		client: &http.Client{
+			Timeout:   timeout,
+			Transport: defaultTransport,
+		},
 		config: cfg,
 	}
 }

@@ -238,10 +238,11 @@ func (l *EventLog) Load(path string) error {
 	return json.Unmarshal(data, &l.events)
 }
 
-// truncateStr 截断字符串
+// truncateStr 截断字符串（按 rune 边界）
 func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string(runes[:maxLen]) + "..."
 }

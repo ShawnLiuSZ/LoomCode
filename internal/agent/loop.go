@@ -9,6 +9,7 @@ import (
 
 	contextpkg "github.com/ShawnLiuSZ/Helix/internal/context"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/Helix/internal/skills"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
 
@@ -22,6 +23,8 @@ type Agent struct {
 	model     string
 	partition *contextpkg.Partition // 上下文分区（缓存感知）
 	goal      *GoalStopCondition   // 停止条件
+	skillsMgr *skills.Manager      // Skills 管理器
+	onCost    func(float64)        // 成本回调
 }
 
 // New 创建 Agent
@@ -57,6 +60,12 @@ func (a *Agent) GetGoal() string { return a.goal.GetGoal() }
 // ClearGoal 清除停止条件
 func (a *Agent) ClearGoal() { a.goal.Clear() }
 
+// SetSkillsManager 设置 Skills 管理器
+func (a *Agent) SetSkillsManager(mgr *skills.Manager) { a.skillsMgr = mgr }
+
+// SetCostCallback 设置成本回调（每次 API 调用后触发）
+func (a *Agent) SetCostCallback(fn func(float64)) { a.onCost = fn }
+
 // AddGuard 添加工具执行守卫
 func (a *Agent) AddGuard(g tool.Guard) { a.executor.AddGuard(g) }
 
@@ -69,10 +78,14 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 		defer close(textCh)
 		defer close(errCh)
 
+		sysPrompt := a.buildSystemPrompt()
+		a.partition.SetPrefix(sysPrompt)
+
 		a.messages = []provider.Message{
-			{Role: "system", Content: a.buildSystemPrompt()},
+			{Role: "system", Content: sysPrompt},
 			{Role: "user", Content: task},
 		}
+		a.partition.AppendLog(contextpkg.LogEntry{Role: "user", Content: task})
 
 		for step := 0; step < a.maxSteps; step++ {
 			select {
@@ -92,24 +105,34 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 				return
 			}
 
-			var fullContent string
-			var toolCalls []provider.ToolCall
-			var toolCallDeltas []provider.ToolCallDelta
+		var fullContent string
+		var toolCalls []provider.ToolCall
+		var toolCallDeltas []provider.ToolCallDelta
+		var lastUsage *provider.Usage
 
-			for event := range streamCh {
-				switch event.Type {
-				case provider.EventText:
-					fullContent += event.Content
-					textCh <- event.Content
-				case provider.EventToolCall:
-					if event.ToolCall != nil {
-						toolCallDeltas = append(toolCallDeltas, *event.ToolCall)
-					}
-				case provider.EventError:
-					errCh <- fmt.Errorf("stream error: %s", event.Content)
-					return
+		for event := range streamCh {
+			switch event.Type {
+			case provider.EventText:
+				fullContent += event.Content
+				textCh <- event.Content
+			case provider.EventToolCall:
+				if event.ToolCall != nil {
+					toolCallDeltas = append(toolCallDeltas, *event.ToolCall)
 				}
+			case provider.EventDone:
+				if event.Usage != nil {
+					lastUsage = event.Usage
+				}
+			case provider.EventError:
+				errCh <- fmt.Errorf("stream error: %s", event.Content)
+				return
 			}
+		}
+
+		if lastUsage != nil && a.onCost != nil {
+			cost := a.provider.Cost(a.model, *lastUsage)
+			a.onCost(cost.TotalCost)
+		}
 
 			// 合并工具调用增量
 			toolCalls = mergeToolCallDeltas(toolCallDeltas)
@@ -180,10 +203,14 @@ func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
 	return result
 }
 func (a *Agent) Run(ctx context.Context, task string) (string, error) {
+	sysPrompt := a.buildSystemPrompt()
+	a.partition.SetPrefix(sysPrompt)
+
 	a.messages = []provider.Message{
-		{Role: "system", Content: a.buildSystemPrompt()},
+		{Role: "system", Content: sysPrompt},
 		{Role: "user", Content: task},
 	}
+	a.partition.AppendLog(contextpkg.LogEntry{Role: "user", Content: task})
 
 	for step := 0; step < a.maxSteps; step++ {
 		select {
@@ -201,6 +228,11 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			return "", fmt.Errorf("chat error (step %d): %w", step, err)
 		}
 
+		if a.onCost != nil {
+			cost := a.provider.Cost(a.model, resp.Usage)
+			a.onCost(cost.TotalCost)
+		}
+
 		// 追加 assistant 消息（含 tool_calls）
 		assistantMsg := provider.Message{Role: "assistant"}
 		if resp.Content != "" {
@@ -216,6 +248,10 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			assistantMsg.ToolCalls = resp.ToolCalls
 		}
 		a.messages = append(a.messages, assistantMsg)
+		a.partition.AppendLog(contextpkg.LogEntry{
+			Role:    "assistant",
+			Content: resp.Content,
+		})
 
 		// 无工具调用 → 返回最终答案
 		if len(resp.ToolCalls) == 0 {
@@ -244,6 +280,10 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 				Content:    content,
 				ToolCallID: tc.ID,
 			})
+			a.partition.AppendLog(contextpkg.LogEntry{
+				Role:    "tool_result",
+				Content: content,
+			})
 		}
 
 		// 每 3 步评估一次 Goal（避免过于频繁）
@@ -252,6 +292,14 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			if evalErr == nil && achieved {
 				return fmt.Sprintf("Goal achieved: %s", reason), nil
 			}
+		}
+	}
+
+	// 最终检查 Goal 是否达成（即使达到最大步数）
+	if a.goal.IsEnabled() {
+		achieved, reason, evalErr := a.goal.Evaluate(ctx, a.messages)
+		if evalErr == nil && achieved {
+			return fmt.Sprintf("Goal achieved: %s", reason), nil
 		}
 	}
 
@@ -276,6 +324,20 @@ func (a *Agent) buildSystemPrompt() string {
 	sb.WriteString("You are Helix, an AI coding assistant.\n")
 	sb.WriteString("You have access to tools for reading/writing files, executing commands, and searching code.\n")
 	sb.WriteString("When asked to complete a task, use the appropriate tools and provide a final answer.\n")
+
+	if a.skillsMgr != nil {
+		skillList := a.skillsMgr.List()
+		if len(skillList) > 0 {
+			sb.WriteString("\n## Available Skills\n")
+			for _, s := range skillList {
+				content, err := s.Content()
+				if err == nil && content != "" {
+					sb.WriteString(fmt.Sprintf("\n### %s\n%s\n", s.Name, content))
+				}
+			}
+		}
+	}
+
 	return sb.String()
 }
 

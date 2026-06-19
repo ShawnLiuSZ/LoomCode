@@ -4,11 +4,11 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-active-success?style=flat-square" alt="Status: Active">
-  <img src="https://img.shields.io/badge/version-0.1.0-informational?style=flat-square" alt="Version: 0.1.0">
+  <img src="https://img.shields.io/badge/version-dev-informational?style=flat-square" alt="Version: dev">
   <img src="https://img.shields.io/badge/language-Go-00ADD8?style=flat-square&logo=go" alt="Language: Go">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License: MIT">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform: macOS | Linux | Windows">
-  <img src="https://img.shields.io/badge/tests-235%20passing-brightgreen?style=flat-square" alt="Tests: 235 passing">
+  <img src="https://img.shields.io/badge/tests-343%20passing-brightgreen?style=flat-square" alt="Tests: 343 passing">
 </p>
 
 **Helix** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 和 [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) 的核心优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置文件一键接入。
@@ -46,6 +46,7 @@ helix --env-file custom.env       # 加载自定义 .env
 helix --version                    # 显示版本
 helix run <task>                   # 单次任务
 helix setup                        # 配置向导
+helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
 ```
 
 ## TUI 交互
@@ -53,7 +54,7 @@ helix setup                        # 配置向导
 | 操作 | 说明 |
 |------|------|
 | 直接输入文字 | 发送任务给 AI |
-| Tab | 切换 Agent 模式（build/plan/compose） |
+| Tab | 切换 Agent 模式（build/plan/compose/max） |
 | 输入 `/` 后 Tab | 命令自动补全 |
 | ↑↓ / Enter / Esc | 交互式选择器（模型选择等） |
 
@@ -70,6 +71,10 @@ helix setup                        # 配置向导
 | `/env` | 查看环境变量 |
 | `/env set <KEY> <VALUE>` | 设置环境变量 |
 | `/env unset <KEY>` | 移除环境变量 |
+| `/goal` | 设置/查看/清除停止条件 |
+| `/sessions` | 查看会话列表 |
+| `/sessions new <name>` | 创建新会话 |
+| `/sessions switch <ID>` | 切换会话 |
 | `/cost` | 显示成本统计 |
 | `/clear` | 清空聊天记录 |
 | `/quit` | 退出 |
@@ -125,7 +130,7 @@ OPENAI_API_KEY=
 
 ## 项目状态
 
-当前处于 **活跃开发阶段**（v0.1.0）。
+当前处于 **活跃开发阶段**。
 
 | 阶段 | 状态 |
 |------|------|
@@ -134,7 +139,7 @@ OPENAI_API_KEY=
 | Phase 3 多 Agent 与记忆 | 已完成 |
 | Phase 4 生态与进化 | 已完成 |
 
-**235 个测试全部通过**，15 个模块覆盖完整。
+**343 个测试全部通过**，17 个模块覆盖完整。
 
 ---
 

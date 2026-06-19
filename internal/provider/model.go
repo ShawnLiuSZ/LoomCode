@@ -17,9 +17,10 @@ type ModelCost struct {
 
 // Usage token 用量
 type Usage struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	PromptTokens      int
+	CompletionTokens  int
+	TotalTokens       int
+	CachedInputTokens int // 缓存命中的输入 token 数
 }
 
 // Cost 单次调用成本

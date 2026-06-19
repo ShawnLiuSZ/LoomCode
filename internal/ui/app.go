@@ -74,6 +74,12 @@ type App struct {
 	// 流式输出缓冲
 	streamMu sync.Mutex
 	streamBuf string
+
+	// BubbleTea program reference (set after Init, used for streaming)
+	program *tea.Program
+
+	// 请求取消
+	cancelFunc context.CancelFunc
 }
 
 type chatMessage struct {
@@ -116,8 +122,9 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	// 加载 skills
 	skillsMgr := skills.NewManager()
 	skillsMgr.Load()
+	ag.SetSkillsManager(skillsMgr)
 
-	return &App{
+	app := &App{
 		agent:     ag,
 		provider:  p,
 		tools:     tools,
@@ -129,10 +136,19 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 			{Role: "system", Content: "输入任务开始 | 输入 / 查看命令 | Tab 切换模式 | Ctrl+C 退出", Timestamp: time.Now()},
 		},
 	}
+
+	ag.SetCostCallback(func(cost float64) {
+		app.costLast = cost
+		app.costSession += cost
+		app.costTotal += cost
+	})
+
+	return app
 }
 
 func (a *App) SetSessionManager(mgr *session.Manager) { a.sessionMgr = mgr }
 func (a *App) SetModel(m string)                       { a.model = m; a.agent.SetModel(m) }
+func (a *App) SetProgram(p *tea.Program)               { a.program = p }
 
 // RestoreSession 恢复历史会话
 func (a *App) RestoreSession(sess *session.Session) {
@@ -174,11 +190,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamBuf = ""
 		a.streamMu.Unlock()
 		a.loading = false
+		a.cancelFunc = nil
 		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, Timestamp: time.Now()})
 		return a, nil
 	case streamErrorMsg:
 		a.loading = false
-		errStr := string(msg)
+		a.cancelFunc = nil
+		errStr := friendlyError(string(msg))
 		a.messages = append(a.messages, chatMessage{Role: "error", Content: errStr, Timestamp: time.Now()})
 		return a, nil
 	}
@@ -253,6 +271,13 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.quitting = true
 		return a, tea.Quit
 	case "esc":
+		if a.loading && a.cancelFunc != nil {
+			a.cancelFunc()
+			a.cancelFunc = nil
+			a.loading = false
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: "请求已取消"})
+			return a, nil
+		}
 		a.input = ""
 		a.showSuggestions = false
 		return a, nil
@@ -415,6 +440,9 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: msg})
 		return a, nil
 
+	case "/sessions":
+		return a.handleSessionsCmd(parts)
+
 	case "/env":
 		return a.handleEnvCommand(parts)
 
@@ -549,8 +577,71 @@ func (a *App) handleSkillsCmd() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
+	if a.sessionMgr == nil {
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: "会话管理器未初始化"})
+		return a, nil
+	}
+
+	if len(parts) >= 2 {
+		switch parts[1] {
+		case "new":
+			name := fmt.Sprintf("session_%d", time.Now().UnixMilli())
+			if len(parts) >= 3 {
+				name = strings.Join(parts[2:], " ")
+			}
+			sess := a.sessionMgr.Create(name, a.model, a.provider.Name())
+			a.activeSess = sess
+			a.messages = append(a.messages, chatMessage{
+				Role: "system", Content: fmt.Sprintf("已创建新会话: %s (ID: %s)", name, sess.ID),
+			})
+			return a, nil
+		case "switch":
+			if len(parts) < 3 {
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: "用法: /sessions switch <ID>",
+				})
+				return a, nil
+			}
+			sess, ok := a.sessionMgr.Get(parts[2])
+			if !ok {
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: fmt.Sprintf("会话 %q 不存在", parts[2]),
+				})
+				return a, nil
+			}
+			a.sessionMgr.SetActive(parts[2])
+			a.RestoreSession(sess)
+			return a, nil
+		}
+	}
+
+	// /sessions - 列出所有会话
+	sessions := a.sessionMgr.List()
+	if len(sessions) == 0 {
+		a.messages = append(a.messages, chatMessage{
+			Role: "system", Content: "暂无会话。使用 /sessions new <名称> 创建新会话。",
+		})
+		return a, nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📋 会话列表 (%d):\n\n", len(sessions)))
+	for _, s := range sessions {
+		marker := "  "
+		if a.activeSess != nil && a.activeSess.ID == s.ID {
+			marker = "▶ "
+		}
+		sb.WriteString(fmt.Sprintf("%s%s — %s (%d 条消息, %s)\n",
+			marker, s.ID, s.Name, len(s.Messages), s.UpdatedAt.Format("01-02 15:04")))
+	}
+	sb.WriteString("\n使用 /sessions switch <ID> 切换会话")
+	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+	return a, nil
+}
+
 func (a *App) cycleMode() {
-	modes := []agent.Mode{agent.ModeBuild, agent.ModePlan, agent.ModeCompose}
+	modes := []agent.Mode{agent.ModeBuild, agent.ModePlan, agent.ModeCompose, agent.ModeMax}
 	for i, m := range modes {
 		if m == a.mode {
 			a.mode = modes[(i+1)%len(modes)]
@@ -635,8 +726,13 @@ func (a *App) renderMessages(visibleLines int) string {
 	var sb strings.Builder
 	startIdx := 0
 	totalLines := 0
+	maxWidth := a.width - 4 // 留出边距
+	if maxWidth < 20 {
+		maxWidth = 20
+	}
+
 	for i := len(a.messages) - 1; i >= 0; i-- {
-		lines := strings.Count(a.messages[i].Content, "\n") + 1
+		lines := a.wrappedLineCount(a.messages[i].Content, maxWidth)
 		totalLines += lines
 		if totalLines > visibleLines {
 			startIdx = i + 1
@@ -647,36 +743,96 @@ func (a *App) renderMessages(visibleLines int) string {
 	for _, msg := range a.messages[startIdx:] {
 		switch msg.Role {
 		case "user":
-			sb.WriteString(userStyle.Render("▸ " + msg.Content))
+			for _, line := range a.wrapLine("▸ "+msg.Content, maxWidth) {
+				sb.WriteString(userStyle.Render(line))
+				sb.WriteString("\n")
+			}
 		case "assistant":
-			for _, line := range strings.Split(msg.Content, "\n") {
-				sb.WriteString(assistantStyle.Render("  " + line))
+			for _, line := range a.wrapLine("  "+msg.Content, maxWidth) {
+				sb.WriteString(assistantStyle.Render(line))
 				sb.WriteString("\n")
 			}
-			continue
 		case "system":
-			sb.WriteString(systemStyle.Render("  " + msg.Content))
-		case "tool":
-			sb.WriteString(toolStyle.Render("  🔧 " + msg.Content))
-		case "error":
-			// 错误消息完整显示，多行展开
-			for _, line := range strings.Split(msg.Content, "\n") {
-				sb.WriteString(errorStyle.Render("  ✖ " + line))
+			for _, line := range a.wrapLine("  "+msg.Content, maxWidth) {
+				sb.WriteString(systemStyle.Render(line))
 				sb.WriteString("\n")
 			}
-			continue
+		case "tool":
+			for _, line := range a.wrapLine("  🔧 "+msg.Content, maxWidth) {
+				sb.WriteString(toolStyle.Render(line))
+				sb.WriteString("\n")
+			}
+		case "error":
+			for _, line := range a.wrapLine("  ✖ "+msg.Content, maxWidth) {
+				sb.WriteString(errorStyle.Render(line))
+				sb.WriteString("\n")
+			}
 		}
-		sb.WriteString("\n")
 	}
 
 	if a.loading && a.streamBuf != "" {
-		for _, line := range strings.Split(a.streamBuf, "\n") {
-			sb.WriteString(assistantStyle.Render("  " + line))
+		for _, line := range a.wrapLine("  "+a.streamBuf, maxWidth) {
+			sb.WriteString(assistantStyle.Render(line))
 			sb.WriteString("\n")
 		}
 	}
 
 	return sb.String()
+}
+
+// wrapLine 将文本按终端宽度换行
+func (a *App) wrapLine(text string, maxWidth int) []string {
+	if maxWidth <= 0 {
+		return []string{text}
+	}
+
+	runes := []rune(text)
+	if len(runes) <= maxWidth {
+		return []string{text}
+	}
+
+	var lines []string
+	for len(runes) > 0 {
+		if len(runes) <= maxWidth {
+			lines = append(lines, string(runes))
+			break
+		}
+		// 在 maxWidth 处找最后一个空格换行
+		splitAt := maxWidth
+		for i := maxWidth; i > 0; i-- {
+			if runes[i-1] == ' ' || runes[i-1] == '\t' {
+				splitAt = i
+				break
+			}
+		}
+		lines = append(lines, string(runes[:splitAt]))
+		runes = runes[splitAt:]
+	}
+	return lines
+}
+
+// wrappedLineCount 计算换行后的行数
+func (a *App) wrappedLineCount(text string, maxWidth int) int {
+	runes := []rune(text)
+	if maxWidth <= 0 || len(runes) <= maxWidth {
+		return strings.Count(text, "\n") + 1
+	}
+	count := 0
+	for len(runes) > 0 {
+		count++
+		if len(runes) <= maxWidth {
+			break
+		}
+		splitAt := maxWidth
+		for i := maxWidth; i > 0; i-- {
+			if runes[i-1] == ' ' || runes[i-1] == '\t' {
+				splitAt = i
+				break
+			}
+		}
+		runes = runes[splitAt:]
+	}
+	return count
 }
 
 func (a *App) renderInput() string {
@@ -751,22 +907,33 @@ func (a *App) renderCost() string {
 
 func (a *App) runAgent(input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		a.cancelFunc = cancel
 		textCh, errCh := a.agent.RunStream(ctx, input)
 
 		for {
 			select {
 			case text, ok := <-textCh:
 				if !ok {
-					return streamDoneMsg{}
+					if a.program != nil {
+						a.program.Send(streamDoneMsg{})
+					}
+					return nil
 				}
-				// 发送文本块（Bubble Tea 通过 tea.Batch 处理）
-				_ = text // 实际流式需要改造 TUI 架构
+				if a.program != nil {
+					a.program.Send(streamChunkMsg(text))
+				}
 			case err, ok := <-errCh:
 				if ok && err != nil {
-					return streamErrorMsg(err.Error())
+					if a.program != nil {
+						a.program.Send(streamErrorMsg(err.Error()))
+					}
+					return nil
 				}
-				return streamDoneMsg{}
+				if a.program != nil {
+					a.program.Send(streamDoneMsg{})
+				}
+				return nil
 			}
 		}
 	}
@@ -774,8 +941,33 @@ func (a *App) runAgent(input string) tea.Cmd {
 
 // 消息类型
 type streamChunkMsg string
-type streamDoneMsg struct{}
+type streamDoneMsg struct{ cost float64 }
 type streamErrorMsg string
+
+// friendlyError 将常见错误映射为用户友好提示
+func friendlyError(err string) string {
+	lower := strings.ToLower(err)
+	switch {
+	case strings.Contains(lower, "api key") || strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized"):
+		return "API Key 无效或未设置。运行 helix setup 或检查 .env 文件中的 API_KEY 配置。"
+	case strings.Contains(lower, "429") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "too many requests"):
+		return "请求过于频繁，请稍后重试。"
+	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
+		return "请求超时，请检查网络连接或稍后重试。"
+	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "dial tcp"):
+		return "无法连接到服务器，请检查网络。"
+	case strings.Contains(lower, "model") && (strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist")):
+		return "模型不存在，请检查模型名称或使用 /model 切换模型。"
+	case strings.Contains(lower, "max steps"):
+		return "达到最大推理步数限制。使用 /goal 设置停止条件，或增大步数限制。"
+	case strings.Contains(lower, "context canceled") || strings.Contains(lower, "context deadline"):
+		return "请求已取消。"
+	case strings.Contains(lower, "no task provided"):
+		return "请提供任务描述。"
+	default:
+		return err
+	}
+}
 
 // ============================================================
 // 环境变量管理

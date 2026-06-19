@@ -14,6 +14,7 @@ import (
 
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
 	"github.com/ShawnLiuSZ/Helix/internal/config"
+	"github.com/ShawnLiuSZ/Helix/internal/control"
 	"github.com/ShawnLiuSZ/Helix/internal/dashboard"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/provider/deepseek"
@@ -97,27 +98,38 @@ func runCommand(args []string) {
 	// 加载配置
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "配置加载失败: %v\n", err)
+		fmt.Fprintln(os.Stderr, "提示: 运行 helix setup 生成配置文件")
 		os.Exit(1)
 	}
 
 	// 选择 Provider
 	provCfg, err := selectProvider(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider 选择失败: %v\n", err)
+		fmt.Fprintln(os.Stderr, "提示: 检查 helix.toml 中的 provider 配置")
 		os.Exit(1)
 	}
 
 	// 创建 Provider
 	p, err := createProvider(provCfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating provider: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider 创建失败: %v\n", err)
+		fmt.Fprintln(os.Stderr, "提示: 检查 API Key 是否已设置 (DEEPSEEK_API_KEY / OPENAI_API_KEY)")
 		os.Exit(1)
 	}
 
 	// 创建工具注册中心
 	tools := tool.NewRegistry()
 	tools.RegisterDefaults()
+
+	// 注入命令沙箱权限检查器
+	perm := control.NewPermission(control.ModeAuto)
+	if bashTool, ok := tools.Get("bash"); ok {
+		if bt, ok := bashTool.(*tool.BashTool); ok {
+			bt.SetPermissionChecker(perm)
+		}
+	}
 
 	// 创建 Agent
 	ag := agent.New(p, tools)
@@ -256,6 +268,14 @@ func chatCommand() {
 	tools := tool.NewRegistry()
 	tools.RegisterDefaults()
 
+	// 注入命令沙箱权限检查器
+	perm := control.NewPermission(control.ModeAuto)
+	if bashTool, ok := tools.Get("bash"); ok {
+		if bt, ok := bashTool.(*tool.BashTool); ok {
+			bt.SetPermissionChecker(perm)
+		}
+	}
+
 	// 初始化会话管理器
 	home, _ := os.UserHomeDir()
 	sessionDir := filepath.Join(home, ".helix", "sessions")
@@ -282,6 +302,7 @@ func chatCommand() {
 	}
 
 	program := tea.NewProgram(app, tea.WithAltScreen())
+	app.SetProgram(program)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -315,12 +336,14 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  helix [options] run <task>     Run a single task\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] setup          Run configuration wizard\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] chat           Interactive TUI\n")
+	fmt.Fprintf(os.Stderr, "  helix [options] dashboard      Start web dashboard\n")
 	fmt.Fprintf(os.Stderr, "  helix [options]                Start interactive TUI (default)\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  helix                                    Start TUI\n")
 	fmt.Fprintf(os.Stderr, "  helix --session session_1234567890       Resume session\n")
 	fmt.Fprintf(os.Stderr, "  helix --provider deepseek --model deepseek-v4-pro\n")
-	fmt.Fprintf(os.Stderr, "  helix run \"explain this code\"\n\n")
+	fmt.Fprintf(os.Stderr, "  helix run \"explain this code\"\n")
+	fmt.Fprintf(os.Stderr, "  helix dashboard :9090                    Dashboard on port 9090\n\n")
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
 }

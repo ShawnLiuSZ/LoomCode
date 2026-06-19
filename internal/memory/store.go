@@ -58,6 +58,16 @@ func NewStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
+	// 启用 WAL 模式 + busy_timeout
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set WAL: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
+
 	store := &Store{db: db, path: path}
 	if err := store.migrate(); err != nil {
 		db.Close()

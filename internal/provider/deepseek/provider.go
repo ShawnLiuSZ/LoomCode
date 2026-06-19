@@ -1,13 +1,13 @@
 package deepseek
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
@@ -91,7 +91,12 @@ func (p *DeepSeekProvider) Cost(modelID string, usage provider.Usage) provider.C
 		}
 	}
 
-	inputCost := float64(usage.PromptTokens) / 1_000_000 * modelCost.Input
+	uncachedTokens := usage.PromptTokens - usage.CachedInputTokens
+	if uncachedTokens < 0 {
+		uncachedTokens = usage.PromptTokens
+	}
+	inputCost := float64(uncachedTokens)/1_000_000*modelCost.Input +
+		float64(usage.CachedInputTokens)/1_000_000*modelCost.CachedInput
 	outputCost := float64(usage.CompletionTokens) / 1_000_000 * modelCost.Output
 
 	return provider.Cost{
@@ -206,9 +211,10 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 
 	resp := &provider.ChatResponse{
 		Usage: provider.Usage{
-			PromptTokens:     raw.Usage.PromptTokens,
-			CompletionTokens: raw.Usage.CompletionTokens,
-			TotalTokens:      raw.Usage.TotalTokens,
+			PromptTokens:      raw.Usage.PromptTokens,
+			CompletionTokens:  raw.Usage.CompletionTokens,
+			TotalTokens:       raw.Usage.TotalTokens,
+			CachedInputTokens: raw.Usage.PromptCacheHitTokens,
 		},
 	}
 
@@ -237,35 +243,8 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 
 // readDeepSeekStream 读取 DeepSeek SSE 流（含 reasoning_content）
 func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- provider.StreamEvent) {
-	defer close(ch)
-	defer resp.Body.Close()
-
-	scanner := newLineScanner(resp.Body)
-	var reasoningBuf strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// 跳过空行和注释
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
-		}
-
-		// 提取 data:
-		data, ok := strings.CutPrefix(line, "data: ")
-		if !ok {
-			data, ok = strings.CutPrefix(line, "data:")
-			if !ok {
-				continue
-			}
-		}
-
-		// [DONE]
-		if strings.TrimSpace(data) == "[DONE]" {
-			ch <- provider.StreamEvent{Type: provider.EventDone}
-			return
-		}
-
+	ctx := context.Background()
+	provider.ReadSSEStream(ctx, resp, ch, func(data []byte) (string, []provider.ToolCallDelta, *provider.Usage, map[string]any, bool, error) {
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
@@ -281,100 +260,56 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 				} `json:"delta"`
 			} `json:"choices"`
 			Usage *struct {
-				PromptTokens        int `json:"prompt_tokens"`
-				CompletionTokens    int `json:"completion_tokens"`
-				TotalTokens         int `json:"total_tokens"`
+				PromptTokens         int `json:"prompt_tokens"`
+				CompletionTokens     int `json:"completion_tokens"`
+				TotalTokens          int `json:"total_tokens"`
 				PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
 			} `json:"usage"`
 		}
 
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return "", nil, nil, nil, false, nil
 		}
+
+		var content string
+		var toolCalls []provider.ToolCallDelta
 
 		if len(chunk.Choices) > 0 {
 			delta := chunk.Choices[0].Delta
 
-			// 推理内容（DeepSeek 特有）
 			if delta.ReasoningContent != "" {
-				reasoningBuf.WriteString(delta.ReasoningContent)
-				ch <- provider.StreamEvent{
-					Type:    provider.EventText,
-					Content: delta.ReasoningContent,
-				}
+				content += delta.ReasoningContent
 			}
-
-			// 普通文本
 			if delta.Content != "" {
-				ch <- provider.StreamEvent{
-					Type:    provider.EventText,
-					Content: delta.Content,
-				}
+				content += delta.Content
 			}
 
-			// 工具调用
-			if len(delta.ToolCalls) > 0 {
-				tc := delta.ToolCalls[0]
-				ch <- provider.StreamEvent{
-					Type: provider.EventToolCall,
-					ToolCall: &provider.ToolCallDelta{
-						ID:        tc.ID,
-						Name:      tc.Function.Name,
-						Arguments: tc.Function.Arguments,
-					},
-				}
+			for _, tc := range delta.ToolCalls {
+				toolCalls = append(toolCalls, provider.ToolCallDelta{
+					ID:        tc.ID,
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				})
 			}
 		}
 
-		// 用量统计（含缓存命中）
+		var usage *provider.Usage
 		if chunk.Usage != nil {
-			ch <- provider.StreamEvent{
-				Type: provider.EventDone,
-				Usage: &provider.Usage{
-					PromptTokens:     chunk.Usage.PromptTokens,
-					CompletionTokens: chunk.Usage.CompletionTokens,
-					TotalTokens:      chunk.Usage.TotalTokens,
-				},
+			usage = &provider.Usage{
+				PromptTokens:      chunk.Usage.PromptTokens,
+				CompletionTokens:  chunk.Usage.CompletionTokens,
+				TotalTokens:       chunk.Usage.TotalTokens,
+				CachedInputTokens: chunk.Usage.PromptCacheHitTokens,
 			}
 		}
-	}
+
+		return content, toolCalls, usage, nil, false, nil
+	})
 }
 
-// lineScanner 简单的逐行扫描器
-type lineScanner struct {
-	reader io.Reader
-	buf    []byte
-}
-
-func newLineScanner(r io.Reader) *lineScanner {
-	return &lineScanner{reader: r, buf: make([]byte, 0, 4096)}
-}
-
-func (s *lineScanner) Scan() bool {
-	tmp := make([]byte, 4096)
-	n, err := s.reader.Read(tmp)
-	if n > 0 {
-		s.buf = append(s.buf, tmp[:n]...)
-	}
-	return len(s.buf) > 0 || (err == nil)
-}
-
-func (s *lineScanner) Text() string {
-	for i := 0; i < len(s.buf); i++ {
-		if s.buf[i] == '\n' {
-			line := string(s.buf[:i])
-			if i+1 < len(s.buf) {
-				s.buf = s.buf[i+1:]
-			} else {
-				s.buf = s.buf[:0]
-			}
-			return line
-		}
-	}
-	if len(s.buf) > 0 {
-		line := string(s.buf)
-		s.buf = s.buf[:0]
-		return line
-	}
-	return ""
+// newLineScanner 创建基于 bufio.Scanner 的逐行扫描器
+func newLineScanner(r io.Reader) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 4096), 1024*1024) // 1MB max line
+	return scanner
 }
