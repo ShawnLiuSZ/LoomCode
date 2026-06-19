@@ -82,13 +82,13 @@ func estimateTokens(messages []provider.Message) int {
 }
 
 // truncateMessages 截断消息列表以适应上下文窗口
-// 保留 system prompt（第一条）和最近的消息，丢弃中间最旧的 tool 结果
+// 按"轮次"删除：找到最旧的完整 tool-call 轮次（assistant+tool_results），整轮删除
+// 避免删除 tool 消息但保留 assistant tool_calls 导致 API 400 错误
 func (a *Agent) truncateMessages(ctxWindow int) {
 	if ctxWindow <= 0 {
 		return
 	}
 
-	// 保留 20% 作为输出预算
 	maxInput := ctxWindow * 80 / 100
 
 	tokens := estimateTokens(a.messages)
@@ -96,25 +96,41 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 		return
 	}
 
-	// 从最旧的非 system 消息开始删除（优先删除 tool 结果，它们最冗长）
-	// 保留 system prompt（index 0）和最近 4 条消息
+	// 保留 system prompt (index 0) 和最近 4 条消息
 	const keepRecent = 4
+
 	for len(a.messages) > keepRecent+1 && tokens > maxInput {
-		// 找到最旧的可删除消息（跳过 system）
-		delIdx := -1
-		for i := 1; i < len(a.messages)-keepRecent; i++ {
-			if a.messages[i].Role == "tool" {
-				delIdx = i
+		// 找到最旧的完整轮次：从后往前找第一个 assistant(tool_calls) + 其 tool results
+		roundStart := -1
+		roundEnd := -1
+
+		for i := len(a.messages) - keepRecent - 1; i >= 1; i-- {
+			msg := a.messages[i]
+			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+				// 找到 assistant tool_calls，向后找所有对应的 tool 结果
+				roundStart = i
+				roundEnd = i
+				for j := i + 1; j < len(a.messages)-keepRecent; j++ {
+					if a.messages[j].Role == "tool" {
+						roundEnd = j
+					} else {
+						break
+					}
+				}
 				break
 			}
 		}
-		// 如果没有 tool 消息，删除最旧的非 system 消息
-		if delIdx == -1 {
-			delIdx = 1
+
+		// 如果没找到完整轮次，删除最旧的非 system 消息
+		if roundStart == -1 {
+			roundStart = 1
+			roundEnd = 1
 		}
 
-		tokens -= estimateTokens([]provider.Message{a.messages[delIdx]})
-		a.messages = append(a.messages[:delIdx], a.messages[delIdx+1:]...)
+		// 删除整个轮次 [roundStart, roundEnd]
+		deleted := a.messages[roundStart : roundEnd+1]
+		tokens -= estimateTokens(deleted)
+		a.messages = append(a.messages[:roundStart], a.messages[roundEnd+1:]...)
 	}
 }
 
