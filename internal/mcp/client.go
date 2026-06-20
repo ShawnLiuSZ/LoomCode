@@ -9,7 +9,26 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 )
+
+// filterEnvForSubprocess 过滤子进程所需的环境变量
+func filterEnvForSubprocess() []string {
+	keys := []string{
+		"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+		"PATH", "HOME", "USER", "LANG",
+	}
+	var filtered []string
+	for _, e := range os.Environ() {
+		for _, key := range keys {
+			if len(e) > len(key) && e[:len(key)+1] == key+"=" {
+				filtered = append(filtered, e)
+				break
+			}
+		}
+	}
+	return filtered
+}
 
 // Client MCP 客户端（stdio transport）
 type Client struct {
@@ -22,21 +41,26 @@ type Client struct {
 	serverInfo ServerInfo
 	tools     []Tool
 	initialized bool
+
+	// 响应路由
+	pendingMu sync.Mutex
+	pending   map[int64]chan *Response
+	done      chan struct{}
 }
 
 // NewClient 创建 MCP 客户端
 func NewClient(command string, args ...string) *Client {
 	cmd := exec.Command(command, args...)
-	// 继承关键环境变量（API keys 等）
 	cmd.Env = filterEnvForSubprocess()
 	return &Client{
-		cmd: cmd,
+		cmd:     cmd,
+		pending: make(map[int64]chan *Response),
+		done:    make(chan struct{}),
 	}
 }
 
 // Connect 连接并初始化
 func (c *Client) Connect() error {
-	// 启动子进程
 	stdin, err := c.cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("stdin pipe: %w", err)
@@ -52,6 +76,9 @@ func (c *Client) Connect() error {
 	if err := c.cmd.Start(); err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
+
+	// 启动后台 reader goroutine
+	go c.readLoop()
 
 	// 发送 initialize
 	initParams := InitializeParams{
@@ -84,13 +111,90 @@ func (c *Client) Connect() error {
 	return nil
 }
 
+// readLoop 后台读取循环，按 ID 路由响应
+func (c *Client) readLoop() {
+	defer close(c.done)
+	for {
+		line, err := c.stdout.ReadBytes('\n')
+		if err != nil {
+			return
+		}
+
+		resp, err := ParseResponse(line)
+		if err != nil {
+			continue
+		}
+
+		// 路由响应到对应的 pending 请求
+		c.pendingMu.Lock()
+		ch, ok := c.pending[resp.ID]
+		if ok {
+			delete(c.pending, resp.ID)
+		}
+		c.pendingMu.Unlock()
+
+		if ok {
+			ch <- resp
+		}
+	}
+}
+
+// call 发送请求并等待响应（带超时）
+func (c *Client) call(method string, params any) (*Response, error) {
+	id := c.nextID.Add(1)
+	req, err := NewRequest(id, method, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// 注册 pending 请求
+	respCh := make(chan *Response, 1)
+	c.pendingMu.Lock()
+	c.pending[id] = respCh
+	c.pendingMu.Unlock()
+
+	// 写入请求（需要锁保护 stdin）
+	c.mu.Lock()
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+	if _, err := c.stdin.Write(data); err != nil {
+		c.mu.Unlock()
+		c.cancelPending(id)
+		return nil, fmt.Errorf("write request: %w", err)
+	}
+	c.mu.Unlock()
+
+	// 等待响应（30 秒超时）
+	select {
+	case resp := <-respCh:
+		if resp.Error != nil {
+			return nil, fmt.Errorf("server error: %s", resp.Error.Message)
+		}
+		return resp, nil
+	case <-time.After(30 * time.Second):
+		c.cancelPending(id)
+		return nil, fmt.Errorf("request timeout (30s)")
+	case <-c.done:
+		c.cancelPending(id)
+		return nil, fmt.Errorf("server disconnected")
+	}
+}
+
+// cancelPending 清理超时的 pending 请求
+func (c *Client) cancelPending(id int64) {
+	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
+	delete(c.pending, id)
+}
+
 // Close 关闭连接
 func (c *Client) Close() error {
 	if c.stdin != nil {
 		c.stdin.Close()
 	}
 	if c.cmd != nil && c.cmd.Process != nil {
-		return c.cmd.Process.Kill()
+		c.cmd.Process.Kill()
+		c.cmd.Wait()
 	}
 	return nil
 }
@@ -134,51 +238,6 @@ func (c *Client) CallTool(name string, args map[string]any) (*CallToolResult, er
 	}
 
 	return &result, nil
-}
-
-// call 发送请求并等待响应
-func (c *Client) call(method string, params any) (*Response, error) {
-	id := c.nextID.Add(1)
-	req, err := NewRequest(id, method, params)
-	if err != nil {
-		return nil, err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// 发送请求
-	data, _ := json.Marshal(req)
-	data = append(data, '\n')
-	if _, err := c.stdin.Write(data); err != nil {
-		return nil, fmt.Errorf("write request: %w", err)
-	}
-
-	// 读取响应
-	line, err := c.stdout.ReadBytes('\n')
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	return ParseResponse(line)
-}
-
-// filterEnvForSubprocess 过滤子进程所需的环境变量
-func filterEnvForSubprocess() []string {
-	keys := []string{
-		"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-		"PATH", "HOME", "USER", "LANG",
-	}
-	var filtered []string
-	for _, e := range os.Environ() {
-		for _, key := range keys {
-			if len(e) > len(key) && e[:len(key)+1] == key+"=" {
-				filtered = append(filtered, e)
-				break
-			}
-		}
-	}
-	return filtered
 }
 
 // sendNotification 发送通知（无响应）
