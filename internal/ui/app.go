@@ -76,6 +76,9 @@ type App struct {
 	costSession float64
 	costLast    float64
 
+	// 会话保存状态
+	savedMsgCount int // 已保存的消息数量
+
 	// 上下文使用
 	tokensUsed    int
 	tokensWindow  int
@@ -191,6 +194,23 @@ func (a *App) SetSessionManager(mgr *session.Manager) { a.sessionMgr = mgr }
 func (a *App) SetModel(m string)                       { a.model = m; a.agent.SetModel(m) }
 func (a *App) SetProgram(p *tea.Program)               { a.program = p }
 
+// saveSession 将新消息保存到活动会话
+func (a *App) saveSession() {
+	if a.sessionMgr == nil || a.activeSess == nil {
+		return
+	}
+	// 只保存新消息（上次保存之后的）
+	for i := a.savedMsgCount; i < len(a.messages); i++ {
+		msg := a.messages[i]
+		a.sessionMgr.AddMessage(session.Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		})
+	}
+	a.savedMsgCount = len(a.messages)
+	a.sessionMgr.Save(a.activeSess.ID)
+}
+
 // RestoreSession 恢复历史会话
 func (a *App) RestoreSession(sess *session.Session) {
 	a.activeSess = sess
@@ -265,6 +285,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.loading = false
 		a.cancelFunc = nil
 		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, Timestamp: time.Now()})
+		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height - 8))
 		a.viewport.GotoBottom()
 		return a, nil
@@ -274,6 +295,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.cancelFunc = nil
 		errStr := friendlyError(string(msg))
 		a.messages = append(a.messages, chatMessage{Role: "error", Content: errStr, Timestamp: time.Now()})
+		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height - 8))
 		a.viewport.GotoBottom()
 		return a, nil
@@ -346,6 +368,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+c":
+		a.saveSession()
 		a.quitting = true
 		return a, tea.Quit
 
@@ -439,9 +462,11 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: input, Timestamp: time.Now()})
 	a.loading = true
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancelFunc = cancel
 	a.viewport.SetContent(a.renderMessages(a.height - 8))
 	a.viewport.GotoBottom()
-	return a, a.runAgent(input)
+	return a, a.runAgent(ctx, input)
 }
 
 func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
@@ -954,10 +979,8 @@ func (a *App) renderContextUsage() string {
 	return fmt.Sprintf("%dk/%dk", a.tokensUsed/1000, a.tokensWindow/1000)
 }
 
-func (a *App) runAgent(input string) tea.Cmd {
+func (a *App) runAgent(ctx context.Context, input string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithCancel(context.Background())
-		a.cancelFunc = cancel
 		textCh, errCh := a.agent.RunStream(ctx, input)
 
 		for {

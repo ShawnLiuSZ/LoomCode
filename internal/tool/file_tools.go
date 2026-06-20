@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // ReadFileTool 读取文件工具
@@ -104,16 +105,8 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 	}
 
 	content := string(data)
-	count := 0
-	newContent := content
-	for {
-		idx := findSubstring(newContent, oldText)
-		if idx < 0 {
-			break
-		}
-		newContent = newContent[:idx] + newText + newContent[idx+len(oldText):]
-		count++
-	}
+	// 使用 strings.Replace 安全替换所有匹配（-1），避免手动循环导致死循环
+	newContent := strings.Replace(content, oldText, newText, -1)
 
 	if newContent == content {
 		return nil, fmt.Errorf("old_text not found in file")
@@ -123,7 +116,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 		return nil, fmt.Errorf("write file %q: %w", path, err)
 	}
 
-	return &Result{Content: fmt.Sprintf("File edited: %s (replaced %d occurrences)", path, count)}, nil
+	return &Result{Content: fmt.Sprintf("File edited: %s", path)}, nil
 }
 
 func findSubstring(s, sub string) int {

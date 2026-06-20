@@ -223,6 +223,15 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			// 执行工具
 			toolResults := a.executeTools(ctx, toolCalls)
 			for i, tc := range toolCalls {
+				// 安全检查：确保结果存在
+				if i >= len(toolResults) || toolResults[i] == nil {
+					a.messages = append(a.messages, provider.Message{
+						Role:       "tool",
+						Content:    "Error: tool execution returned no result",
+						ToolCallID: tc.ID,
+					})
+					continue
+				}
 				content := toolResults[i].Content
 				if !toolResults[i].OK() {
 					content = fmt.Sprintf("Error: %s", toolResults[i].Error)
@@ -329,8 +338,16 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 		// 执行工具调用
 		toolResults := a.executeTools(ctx, resp.ToolCalls)
 
-		// 追加工具结果
+		// 追加工具结果（带安全检查）
 		for i, tc := range resp.ToolCalls {
+			if i >= len(toolResults) || toolResults[i] == nil {
+				a.messages = append(a.messages, provider.Message{
+					Role:       "tool",
+					Content:    "Error: tool execution returned no result",
+					ToolCallID: tc.ID,
+				})
+				continue
+			}
 			result := toolResults[i]
 			content := result.Content
 			if !result.OK() {

@@ -64,19 +64,47 @@ func (e *Executor) Execute(ctx context.Context, calls []Call) []*Result {
 		return nil
 	}
 
-	// 分区：只读 + 写入
-	readCalls, writeCalls := e.partition(calls)
+	// 分区：只读 + 写入，记录原始索引
+	type indexedCall struct {
+		call Call
+		idx  int
+	}
+	var readCalls, writeCalls []indexedCall
+	for i, c := range calls {
+		t, ok := e.registry.Get(c.Name)
+		if ok && t.IsReadOnly() {
+			readCalls = append(readCalls, indexedCall{call: c, idx: i})
+		} else {
+			writeCalls = append(writeCalls, indexedCall{call: c, idx: i})
+		}
+	}
 
+	// 结果数组，按原始顺序
+	results := make([]*Result, len(calls))
 	maxParallel := e.MaxParallel()
 
-	// 并行执行只读工具（受 maxParallel 限制）
-	readResults := e.executeParallel(ctx, readCalls, maxParallel)
+	// 并行执行只读工具
+	if len(readCalls) > 0 {
+		sem := make(chan struct{}, maxParallel)
+		var wg sync.WaitGroup
+		for _, ic := range readCalls {
+			wg.Add(1)
+			go func(idx int, c Call) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				results[idx] = e.executeOne(ctx, c)
+			}(ic.idx, ic.call)
+		}
+		wg.Wait()
+	}
 
 	// 串行执行写入工具
-	writeResults := e.executeSerial(ctx, writeCalls)
+	for _, ic := range writeCalls {
+		results[ic.idx] = e.executeOne(ctx, ic.call)
+	}
 
-	// 按原始顺序合并结果
-	return e.mergeResults(calls, readResults, writeResults)
+	return results
 }
 
 // partition 精确分区：查询 registry 获取 IsReadOnly
@@ -92,26 +120,22 @@ func (e *Executor) partition(calls []Call) (read, write []Call) {
 	return
 }
 
-// executeParallel 并行执行（带并发限制）
-func (e *Executor) executeParallel(ctx context.Context, calls []Call, maxParallel int) map[string]*Result {
-	results := make(map[string]*Result)
-	var mu sync.Mutex
+// executeParallel 并行执行（带并发限制），按原始下标返回结果
+func (e *Executor) executeParallel(ctx context.Context, calls []Call, maxParallel int) []*Result {
+	results := make([]*Result, len(calls))
 
 	sem := make(chan struct{}, maxParallel)
 	var wg sync.WaitGroup
 
-	for _, call := range calls {
+	for i, call := range calls {
 		wg.Add(1)
-		go func(c Call) {
+		go func(idx int, c Call) {
 			defer wg.Done()
 			sem <- struct{}{}        // 获取令牌
 			defer func() { <-sem }() // 释放令牌
 
-			result := e.executeOne(ctx, c)
-			mu.Lock()
-			results[c.Name] = result
-			mu.Unlock()
-		}(call)
+			results[idx] = e.executeOne(ctx, c)
+		}(i, call)
 	}
 
 	wg.Wait()
@@ -124,23 +148,6 @@ func (e *Executor) executeSerial(ctx context.Context, calls []Call) []*Result {
 	for i, call := range calls {
 		results[i] = e.executeOne(ctx, call)
 	}
-	return results
-}
-
-// mergeResults 按原始顺序合并结果
-func (e *Executor) mergeResults(original []Call, readResults map[string]*Result, writeResults []*Result) []*Result {
-	results := make([]*Result, len(original))
-	writeIdx := 0
-
-	for i, call := range original {
-		if r, ok := readResults[call.Name]; ok {
-			results[i] = r
-		} else {
-			results[i] = writeResults[writeIdx]
-			writeIdx++
-		}
-	}
-
 	return results
 }
 

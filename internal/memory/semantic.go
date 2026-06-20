@@ -38,6 +38,7 @@ type SemanticIndex struct {
 	documents   map[string]*Document
 	embeddings  EmbeddingProvider
 	dimensions  int
+	cacheMu     sync.RWMutex        // 保护 embedCache
 	embedCache  map[string][]float64 // content hash → cached embedding
 }
 
@@ -63,14 +64,23 @@ func contentHash(text string) string {
 // getEmbed 获取嵌入向量（带缓存）
 func (idx *SemanticIndex) getEmbed(ctx context.Context, text string) ([]float64, error) {
 	hash := contentHash(text)
+
+	idx.cacheMu.RLock()
 	if cached, ok := idx.embedCache[hash]; ok {
+		idx.cacheMu.RUnlock()
 		return cached, nil
 	}
+	idx.cacheMu.RUnlock()
+
 	vector, err := idx.embeddings.Embed(ctx, text)
 	if err != nil {
 		return nil, err
 	}
+
+	idx.cacheMu.Lock()
 	idx.embedCache[hash] = vector
+	idx.cacheMu.Unlock()
+
 	return vector, nil
 }
 
@@ -104,6 +114,8 @@ func (idx *SemanticIndex) AddBatch(ctx context.Context, docs []*Document) error 
 	// 检查缓存，只 embed 未缓存的
 	toEmbed := make([]int, 0)
 	uncachedTexts := make([]string, 0)
+
+	idx.cacheMu.RLock()
 	for i, text := range texts {
 		hash := contentHash(text)
 		if _, ok := idx.embedCache[hash]; !ok {
@@ -111,6 +123,7 @@ func (idx *SemanticIndex) AddBatch(ctx context.Context, docs []*Document) error 
 			uncachedTexts = append(uncachedTexts, text)
 		}
 	}
+	idx.cacheMu.RUnlock()
 
 	// 批量 embed 未缓存的
 	if len(uncachedTexts) > 0 {
@@ -118,17 +131,21 @@ func (idx *SemanticIndex) AddBatch(ctx context.Context, docs []*Document) error 
 		if err != nil {
 			return fmt.Errorf("embed batch: %w", err)
 		}
+		idx.cacheMu.Lock()
 		for j, i := range toEmbed {
 			hash := contentHash(texts[i])
 			idx.embedCache[hash] = vectors[j]
 		}
+		idx.cacheMu.Unlock()
 	}
 
 	// 分配向量
+	idx.cacheMu.RLock()
 	for i, doc := range docs {
 		hash := contentHash(texts[i])
 		doc.Vector = normalizeVector(idx.embedCache[hash])
 	}
+	idx.cacheMu.RUnlock()
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -203,11 +220,15 @@ func (idx *SemanticIndex) Size() int {
 	return len(idx.documents)
 }
 
-// Clear 清除所有文档
+// Clear 清除所有文档和缓存
 func (idx *SemanticIndex) Clear() {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	idx.documents = make(map[string]*Document)
+
+	idx.cacheMu.Lock()
+	defer idx.cacheMu.Unlock()
+	idx.embedCache = make(map[string][]float64)
 }
 
 // Save 保存索引到文件
