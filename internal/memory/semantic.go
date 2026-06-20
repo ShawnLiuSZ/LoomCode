@@ -131,6 +131,10 @@ func (idx *SemanticIndex) AddBatch(ctx context.Context, docs []*Document) error 
 		if err != nil {
 			return fmt.Errorf("embed batch: %w", err)
 		}
+		// 校验返回长度
+		if len(vectors) != len(uncachedTexts) {
+			return fmt.Errorf("embed batch: expected %d vectors, got %d", len(uncachedTexts), len(vectors))
+		}
 		idx.cacheMu.Lock()
 		for j, i := range toEmbed {
 			hash := contentHash(texts[i])

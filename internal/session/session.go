@@ -186,16 +186,28 @@ func (m *Manager) Save(id string) error {
 	return s.saveAll()
 }
 
-// saveMeta 写入元数据行
+// saveMeta 写入元数据行（原子写入：先写临时文件，再 rename）
 func (s *Session) saveMeta() {
-	f, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tmpPath := s.filePath + ".tmp"
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() {
+		f.Close()
+		os.Remove(tmpPath) // 清理临时文件
+	}()
 
 	encoder := json.NewEncoder(f)
-	encoder.Encode(s.Meta)
+	if err := encoder.Encode(s.Meta); err != nil {
+		return
+	}
+	f.Close()
+
+	os.Rename(tmpPath, s.filePath)
 }
 
 // saveAll 完整保存（元数据 + 所有消息）

@@ -256,10 +256,10 @@ type Notification struct {
 const jsonrpcVersion = "2.0"
 
 // filterEnvForSubprocess 过滤子进程所需的环境变量
+// 只传必要的系统变量，不传 API key（安全）
 func filterEnvForSubprocess() []string {
 	keys := []string{
-		"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
-		"PATH", "HOME", "USER", "LANG",
+		"PATH", "HOME", "USER", "LANG", "TMPDIR",
 	}
 	var filtered []string
 	for _, e := range os.Environ() {

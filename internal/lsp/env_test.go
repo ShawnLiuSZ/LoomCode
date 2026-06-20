@@ -14,19 +14,23 @@ func TestFilterEnvForSubprocess(t *testing.T) {
 
 	found := make(map[string]bool)
 	for _, e := range env {
-		for _, key := range []string{"DEEPSEEK_API_KEY", "MIMO_API_KEY", "PATH", "HOME", "USER", "LANG"} {
+		for _, key := range []string{"PATH", "HOME", "USER", "LANG"} {
 			if len(e) > len(key) && e[:len(key)+1] == key+"=" {
 				found[key] = true
 			}
 		}
 	}
 
-	if !found["DEEPSEEK_API_KEY"] {
-		t.Error("DEEPSEEK_API_KEY should be in filtered env")
+	// API keys should NOT be in filtered env (security)
+	apiKeyPrefixes := []string{"DEEPSEEK_API_KEY=", "MIMO_API_KEY="}
+	for _, e := range env {
+		for _, prefix := range apiKeyPrefixes {
+			if len(e) >= len(prefix) && e[:len(prefix)] == prefix {
+				t.Errorf("%s should NOT be in filtered env", prefix[:len(prefix)-1])
+			}
+		}
 	}
-	if !found["MIMO_API_KEY"] {
-		t.Error("MIMO_API_KEY should be in filtered env")
-	}
+
 	if !found["PATH"] {
 		t.Error("PATH should be in filtered env")
 	}
