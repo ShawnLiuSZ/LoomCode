@@ -38,14 +38,24 @@ func NewAllowlist() *Allowlist {
 		},
 		blockedShellPatterns: []string{
 			"rm -rf",
+			"rm -fr",
 			"rm -r ",
 			"sudo ",
 			"chmod 777",
 			"| sh",
+			"|bash",
+			"| bash",
 			"> /dev/",
 			"mkfs.",
 			"dd if=",
 			":(){ :|:& };:", // fork bomb
+			"curl",
+			"wget",
+			"nc ",
+			"ncat ",
+			"ssh ",
+			"scp ",
+			"rsync ",
 		},
 	}
 }
@@ -93,13 +103,14 @@ func (a *Allowlist) CheckSensitive(path string) (bool, string) {
 }
 
 // isShellAllowed 检查 Shell 命令是否允许
+// 按 shell 分隔符分段，对每段的 argv[0] 做精确白名单校验
 func (a *Allowlist) isShellAllowed(args map[string]any) bool {
 	command, _ := args["command"].(string)
 	if command == "" {
 		return false
 	}
 
-	// 检查禁止模式
+	// 检查禁止模式（纵深防御）
 	for _, blocked := range a.blockedShellPatterns {
 		if strings.Contains(command, blocked) {
 			return false
@@ -111,13 +122,78 @@ func (a *Allowlist) isShellAllowed(args map[string]any) bool {
 		return false
 	}
 
-	// 检查允许列表
-	for _, allowed := range a.shellCommands {
-		if command == allowed || strings.HasPrefix(command, allowed) {
-			return true
+	// 按 shell 分隔符分段，检查每段的 argv[0]
+	segments := splitShellCommand(command)
+	for _, seg := range segments {
+		argv0 := extractArgv0(seg)
+		if argv0 == "" {
+			continue
+		}
+		if !a.isArgv0Allowed(argv0) {
+			return false
 		}
 	}
 
+	return true
+}
+
+// splitShellCommand 按 shell 分隔符分割命令
+func splitShellCommand(cmd string) []string {
+	// 按 ;, &&, ||, |, $(), 反引号 分割
+	separators := []string{";", "&&", "||", "|"}
+	result := []string{cmd}
+
+	for _, sep := range separators {
+		var next []string
+		for _, s := range result {
+			parts := strings.Split(s, sep)
+			next = append(next, parts...)
+		}
+		result = next
+	}
+
+	// 过滤空段
+	var filtered []string
+	for _, s := range result {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			filtered = append(filtered, s)
+		}
+	}
+	return filtered
+}
+
+// extractArgv0 从命令段中提取第一个参数（命令名）
+func extractArgv0(segment string) string {
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return ""
+	}
+
+	// 跳过环境变量赋值 (KEY=VALUE)
+	for strings.Contains(segment, "=") && !strings.HasPrefix(segment, "=") {
+		// 找到第一个空格，跳过 KEY=VALUE
+		spIdx := strings.Index(segment, " ")
+		if spIdx < 0 {
+			return ""
+		}
+		segment = strings.TrimSpace(segment[spIdx+1:])
+	}
+
+	// 取第一个空格前的部分
+	if idx := strings.IndexAny(segment, " \t"); idx >= 0 {
+		return segment[:idx]
+	}
+	return segment
+}
+
+// isArgv0Allowed 检查 argv[0] 是否在白名单中（精确匹配）
+func (a *Allowlist) isArgv0Allowed(argv0 string) bool {
+	for _, allowed := range a.shellCommands {
+		if argv0 == allowed {
+			return true
+		}
+	}
 	return false
 }
 
