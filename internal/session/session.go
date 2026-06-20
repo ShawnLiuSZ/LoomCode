@@ -47,7 +47,7 @@ type Manager struct {
 
 // NewManager 创建会话管理器
 func NewManager(baseDir string) (*Manager, error) {
-	if err := os.MkdirAll(baseDir, 0755); err != nil {
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
 		return nil, fmt.Errorf("create session dir: %w", err)
 	}
 
@@ -188,7 +188,7 @@ func (m *Manager) Save(id string) error {
 
 // saveMeta 写入元数据行
 func (s *Session) saveMeta() {
-	f, err := os.Create(s.filePath)
+	f, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return
 	}
@@ -203,7 +203,7 @@ func (s *Session) saveAll() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	f, err := os.Create(s.filePath)
+	f, err := os.OpenFile(s.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func (s *Session) saveAll() error {
 
 // appendToFile 追加消息
 func (m *Manager) appendToFile(s *Session, msg Message) {
-	f, err := os.OpenFile(s.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(s.filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return
 	}

@@ -327,9 +327,13 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 		// 无工具调用 → 返回最终答案
 		if len(resp.ToolCalls) == 0 {
 			if a.goal.IsEnabled() {
-				achieved, _, evalErr := a.goal.Evaluate(ctx, a.messages)
-				if evalErr == nil && achieved {
-					return resp.Content, nil
+				achieved, reason, evalErr := a.goal.Evaluate(ctx, a.messages)
+				if evalErr == nil {
+					if achieved {
+						return resp.Content, nil
+					}
+					// 目标未达成，返回提示并继续尝试
+					return fmt.Sprintf("%s\n\n⚠️ 目标未完全达成: %s", resp.Content, reason), nil
 				}
 			}
 			return resp.Content, nil

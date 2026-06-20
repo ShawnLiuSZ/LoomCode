@@ -3,8 +3,11 @@ package tool
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // BashTool Shell 命令执行工具
@@ -36,6 +39,12 @@ func (t *BashTool) Schema() Schema {
 	}
 }
 
+// maxOutputSize bash 输出最大 1MB
+const maxOutputSize = 1024 * 1024
+
+// bashTimeout bash 命令独立超时 60 秒
+const bashTimeout = 60 * time.Second
+
 func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, error) {
 	command, _ := args["command"].(string)
 	if command == "" {
@@ -49,16 +58,43 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 		}
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	// 创建独立超时 context（60 秒），不依赖父 context
+	bashCtx, cancel := context.WithTimeout(context.Background(), bashTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(bashCtx, "bash", "-c", command)
 	cmd.Env = EnvForSubprocess()
-	output, err := cmd.CombinedOutput()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 创建进程组
+
+	// 使用 Pipe 限制输出大小
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("create pipe: %w", err)
+	}
+	cmd.Stderr = cmd.Stdout // 合并 stderr 到 stdout
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+
+	// 读取输出（限制大小）
+	limitedReader := io.LimitReader(stdout, maxOutputSize)
+	output, _ := io.ReadAll(limitedReader)
+
+	// 等待命令完成
+	waitErr := cmd.Wait()
+
+	// 如果输出超限，添加提示
+	if len(output) >= maxOutputSize {
+		output = append(output, []byte("\n... (output truncated at 1MB)")...)
+	}
 
 	result := &Result{Content: string(output)}
-	if err != nil {
+	if waitErr != nil {
 		if len(output) > 0 {
 			result.Content = string(output)
 		}
-		result.Error = err.Error()
+		result.Error = waitErr.Error()
 		return result, nil
 	}
 

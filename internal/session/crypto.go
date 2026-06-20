@@ -137,7 +137,7 @@ func (c *Crypto) EncryptSessionFile(meta Meta, messages []Message, filePath stri
 
 	// 写入文件（hex 编码）
 	encoded := hex.EncodeToString(encrypted)
-	return os.WriteFile(filePath+".enc", []byte(encoded), 0644)
+	return os.WriteFile(filePath+".enc", []byte(encoded), 0600)
 }
 
 // DecryptSessionFile 解密会话文件
