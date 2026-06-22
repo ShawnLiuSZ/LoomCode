@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
+	glamourstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
@@ -21,6 +22,9 @@ import (
 	"github.com/ShawnLiuSZ/Helix/internal/skills"
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
+
+// Version 版本号（由 main 包注入）
+var Version = "dev"
 
 // App 交互式 TUI 应用
 type App struct {
@@ -99,6 +103,9 @@ type App struct {
 	// 请求取消
 	cancelFunc context.CancelFunc
 
+	// 任务队列
+	taskQueue []string
+
 	// Markdown renderer
 	glamourRenderer *glamour.TermRenderer
 
@@ -122,7 +129,7 @@ type modelPickerEntry struct {
 // 所有可用命令
 var allCommands = []string{
 	"/help", "/mode", "/build", "/plan", "/compose", "/max",
-	"/goal", "/clear", "/cost", "/env", "/model", "/skills", "/sessions", "/compact", "/quit",
+	"/goal", "/clear", "/cost", "/env", "/model", "/skills", "/sessions", "/compact", "/queue", "/steps", "/quit",
 }
 
 // 样式
@@ -166,10 +173,13 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.FocusedStyle.Base = lipgloss.NewStyle()
 	ta.BlurredStyle.Base = lipgloss.NewStyle()
+	// 修复光标渲染乱码：用 Background 替代 Reverse(true)
+	ta.Cursor.Style = lipgloss.NewStyle().Background(lipgloss.Color("7"))
+	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0"))
 
 	// 创建 glamour renderer
 	renderer, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStandardStyle(glamourstyles.DarkStyle),
 		glamour.WithWordWrap(80),
 	)
 
@@ -184,8 +194,7 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 		glamourRenderer: renderer,
 		renderCache:    make(map[string]string),
 		messages: []chatMessage{
-			{Role: "system", Content: "Helix CLI — 双螺旋 · 多模型 · 可扩展", Timestamp: time.Now()},
-			{Role: "system", Content: "输入任务开始 | 输入 / 查看命令 | Tab 切换模式 | Ctrl+C 退出", Timestamp: time.Now()},
+			{Role: "welcome", Content: "", Timestamp: time.Now()},
 		},
 	}
 
@@ -255,6 +264,8 @@ func (a *App) RestoreSession(sess *session.Session) {
 }
 
 func (a *App) Init() tea.Cmd {
+	// 强制设置深色背景，避免 OSC 11 查询导致的渲染泄漏
+	lipgloss.SetHasDarkBackground(true)
 	return tea.Batch(
 		textarea.Blink,
 		tea.EnterAltScreen,
@@ -286,7 +297,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// 更新 glamour renderer
 		a.glamourRenderer, _ = glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
+			glamour.WithStandardStyle(glamourstyles.DarkStyle),
 			glamour.WithWordWrap(msg.Width-4),
 		)
 
@@ -312,7 +323,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height - 8))
 		a.viewport.GotoBottom()
-		return a, nil
+		// 处理队列中的下一个任务
+		return a, a.processQueue()
 
 	case streamErrorMsg:
 		a.loading = false
@@ -322,7 +334,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height - 8))
 		a.viewport.GotoBottom()
-		return a, nil
+		// 处理队列中的下一个任务
+		return a, a.processQueue()
 	}
 
 	// 更新 textarea
@@ -498,6 +511,19 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 		return a.handleCommand(input)
 	}
 
+	// 如果正在执行任务，加入队列
+	if a.loading {
+		a.taskQueue = append(a.taskQueue, input)
+		queueLen := len(a.taskQueue)
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: fmt.Sprintf("已加入队列 (%d 待处理)", queueLen),
+		})
+		a.viewport.SetContent(a.renderMessages(a.height - 8))
+		a.viewport.GotoBottom()
+		return a, nil
+	}
+
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: input, Timestamp: time.Now()})
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
@@ -524,6 +550,7 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
   /compose   切换到 compose 模式
   /max       切换到 max 模式(实验)
   /goal      设置停止条件
+  /steps     查看/设置最大步数
   /model     显示/切换模型
   /skills    显示可用工具列表
   /clear     清空聊天
@@ -531,11 +558,13 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
   /compact   压缩上下文历史
   /env       环境变量管理
   /sessions  会话列表
+  /queue     查看任务队列
   /quit      退出
 
 提示:
   Tab 切换模式 | 输入 / 后 Tab 联想命令
   直接输入任务开始对话
+  执行中发送新任务会自动排队
   Shift+Enter 换行 | 粘贴多行代码
 
 Goal/Stop Condition:
@@ -590,6 +619,34 @@ Goal/Stop Condition:
 	case "/cost":
 		msg := fmt.Sprintf("会话: $%.4f | 上次: $%.4f | 累计: $%.4f", a.costSession, a.costLast, a.costTotal)
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: msg})
+		return a, nil
+
+	case "/queue":
+		if len(a.taskQueue) == 0 {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: "队列为空"})
+		} else {
+			var sb strings.Builder
+			sb.WriteString(fmt.Sprintf("队列中有 %d 个任务:\n\n", len(a.taskQueue)))
+			for i, task := range a.taskQueue {
+				sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, task))
+			}
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+		}
+		return a, nil
+
+	case "/steps":
+		if len(parts) < 2 {
+			msg := fmt.Sprintf("当前最大步数: %d\n\n使用 /steps <n> 设置新值", a.agent.GetMaxSteps())
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: msg})
+			return a, nil
+		}
+		n := 0
+		if _, err := fmt.Sscanf(parts[1], "%d", &n); err != nil || n < 1 {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: "无效数字，请输入正整数"})
+			return a, nil
+		}
+		a.agent.SetMaxSteps(n)
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("最大步数已设置为 %d", n)})
 		return a, nil
 
 	case "/sessions":
@@ -717,9 +774,24 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 	}
 
 	newModel := parts[1]
+
+	// 查找模型所属的 provider 并切换
+	if a.allProviderModels != nil {
+		for _, p := range a.allProviders {
+			if models, ok := a.allProviderModels[p.Name()]; ok {
+				for _, m := range models {
+					if m.ID == newModel {
+						a.provider = p
+						break
+					}
+				}
+			}
+		}
+	}
+
 	a.model = newModel
 	a.agent.SetModel(newModel)
-	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("模型切换为: %s", newModel)})
+	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", a.provider.Name(), newModel)})
 	a.viewport.SetContent(a.renderMessages(a.height - 8))
 	a.viewport.GotoBottom()
 	return a, nil
@@ -940,6 +1012,9 @@ func (a *App) renderMessages(visibleLines int) string {
 
 	for _, msg := range a.messages {
 		switch msg.Role {
+		case "welcome":
+			sb.WriteString(a.renderWelcome())
+			sb.WriteString("\n")
 		case "user":
 			sb.WriteString(userStyle.Render("▸ " + msg.Content))
 			sb.WriteString("\n")
@@ -1026,6 +1101,61 @@ func (a *App) renderMessages(visibleLines int) string {
 			sb.WriteString(assistantStyle.Render("  " + line))
 			sb.WriteString("\n")
 		}
+	}
+
+	return sb.String()
+}
+
+// renderWelcome 渲染欢迎界面（Logo + Tips + 状态）
+func (a *App) renderWelcome() string {
+	var sb strings.Builder
+
+	// DNA 双螺旋配色
+	helixStyle := lipgloss.NewStyle().Bold(true)
+	blue := lipgloss.Color("39")  // #00BFFF
+	cyan := lipgloss.Color("43")  // #00CED1
+	dim := lipgloss.Color("24")   // #585858
+	verStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
+	tipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+
+	// 每行用不同颜色交替（模拟双螺旋）
+	logo := []struct {
+		text  string
+		color lipgloss.TerminalColor
+	}{
+		{"  ██╗  ██╗███████╗██╗     ██╗███████╗", blue},
+		{"  ██║  ██║██╔════╝██║     ██║██╔════╝", cyan},
+		{"  ███████║█████╗  ██║     ██║█████╗  ", blue},
+		{"  ██╔══██║██╔══╝  ██║     ██║██╔══╝  ", cyan},
+		{"  ██║  ██║███████╗███████╗██║███████╗", blue},
+		{"  ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝╚══════╝", dim},
+	}
+
+	tips := []string{
+		"Tips for getting started",
+		"Shift + Enter to add a new line",
+		"Press / to use commands, @ to mention files",
+		fmt.Sprintf("Model: %s/%s", a.provider.Name(), a.model),
+		fmt.Sprintf("Mode: %s", a.mode.String()),
+	}
+
+	maxLines := len(logo)
+	if len(tips)+1 > maxLines {
+		maxLines = len(tips) + 1
+	}
+
+	for i := 0; i < maxLines; i++ {
+		left := ""
+		if i < len(logo) {
+			left = helixStyle.Foreground(logo[i].color).Render(logo[i].text)
+		}
+		right := ""
+		if i == 0 {
+			right = verStyle.Render("Helix CLI v" + Version)
+		} else if i-1 < len(tips) {
+			right = tipStyle.Render(tips[i-1])
+		}
+		sb.WriteString(fmt.Sprintf("%s  %s\n", left, right))
 	}
 
 	return sb.String()
@@ -1230,8 +1360,26 @@ func (a *App) showEnvVars() (tea.Model, tea.Cmd) {
 	var sb strings.Builder
 	sb.WriteString("环境变量:\n\n")
 	for key, val := range a.envVars {
-		sb.WriteString(fmt.Sprintf("  %s = %s\n", key, val))
+		sb.WriteString(fmt.Sprintf("  %s = %s\n", key, maskValue(val)))
 	}
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 	return a, nil
+}
+
+// processQueue 处理队列中的下一个任务
+func (a *App) processQueue() tea.Cmd {
+	if len(a.taskQueue) == 0 {
+		return nil
+	}
+	next := a.taskQueue[0]
+	a.taskQueue = a.taskQueue[1:]
+
+	a.messages = append(a.messages, chatMessage{Role: "user", Content: next, Timestamp: time.Now()})
+	a.loading = true
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancelFunc = cancel
+	a.viewport.SetContent(a.renderMessages(a.height - 8))
+	a.viewport.GotoBottom()
+
+	return a.runAgent(ctx, next)
 }

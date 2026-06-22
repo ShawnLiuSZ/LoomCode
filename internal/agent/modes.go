@@ -78,7 +78,7 @@ func NewMultiAgent(p provider.Provider, registry *tool.Registry) *MultiAgent {
 		tools:    registry,
 		executor: tool.NewExecutor(registry),
 		mode:     ModeBuild,
-		maxSteps: 10,
+		maxSteps: 20,
 		goal:     NewGoalStopCondition(p),
 	}
 }
@@ -96,6 +96,11 @@ func (a *MultiAgent) Mode() Mode {
 // SetMaxSteps 设置最大步数
 func (a *MultiAgent) SetMaxSteps(n int) {
 	a.maxSteps = n
+}
+
+// GetMaxSteps 获取最大步数
+func (a *MultiAgent) GetMaxSteps() int {
+	return a.maxSteps
 }
 
 // SetModel 设置模型名

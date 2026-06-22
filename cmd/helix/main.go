@@ -45,6 +45,9 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 
+	// 注入版本号到 UI 包
+	ui.Version = version
+
 	// 加载 .env 文件
 	loadEnvFiles()
 

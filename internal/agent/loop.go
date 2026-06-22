@@ -31,7 +31,7 @@ func New(p provider.Provider, registry *tool.Registry) *Agent {
 		tools:     registry,
 		executor:  tool.NewExecutor(registry),
 		goal:      NewGoalStopCondition(p),
-		maxSteps:  10,
+		maxSteps:  20,
 	}
 }
 
@@ -265,11 +265,23 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 // mergeToolCallDeltas 合并流式工具调用增量
 func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
 	byID := make(map[string]*provider.ToolCall)
+	order := make([]string, 0) // 保持顺序
+	lastID := ""
+
 	for _, d := range deltas {
-		tc, ok := byID[d.ID]
+		// 流式传输中后续 chunk 可能没有 ID，使用上一个 ID
+		id := d.ID
+		if id == "" {
+			id = lastID
+		} else {
+			lastID = id
+		}
+
+		tc, ok := byID[id]
 		if !ok {
-			tc = &provider.ToolCall{ID: d.ID, Function: provider.ToolCallFunc{Name: d.Name}}
-			byID[d.ID] = tc
+			tc = &provider.ToolCall{ID: id, Function: provider.ToolCallFunc{Name: d.Name}}
+			byID[id] = tc
+			order = append(order, id)
 		}
 		if d.Name != "" {
 			tc.Function.Name = d.Name
@@ -279,8 +291,9 @@ func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
 		}
 	}
 
-	var result []provider.ToolCall
-	for _, tc := range byID {
+	result := make([]provider.ToolCall, 0, len(order))
+	for _, id := range order {
+		tc := byID[id]
 		if tc.Function.Arguments != "" {
 			json.Unmarshal([]byte(tc.Function.Arguments), &tc.Args)
 		}

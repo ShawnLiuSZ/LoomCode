@@ -51,9 +51,9 @@ func TestEnterSendsMessage(t *testing.T) {
 	if result.textArea.Value() != "" {
 		t.Errorf("expected textarea to be empty after enter, got %q", result.textArea.Value())
 	}
-	// 消息应该被添加
-	if len(result.messages) < 3 { // system + user + possibly more
-		t.Errorf("expected at least 3 messages after enter, got %d", len(result.messages))
+	// 消息应该被添加（welcome + user）
+	if len(result.messages) < 2 {
+		t.Errorf("expected at least 2 messages after enter, got %d", len(result.messages))
 	}
 	// 最后一条应该是 user 消息
 	lastMsg := result.messages[len(result.messages)-1]

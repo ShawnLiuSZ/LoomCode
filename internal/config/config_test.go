@@ -114,6 +114,10 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadDefault(t *testing.T) {
+	// 设置测试用的 API key
+	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("MIMO_API_KEY", "test-key")
+
 	// 当前目录没有 helix.toml，应返回默认配置
 	cfg, err := LoadDefault()
 	if err != nil {
