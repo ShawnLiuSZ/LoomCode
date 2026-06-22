@@ -170,8 +170,8 @@ func (p *DeepSeekProvider) Stream(ctx context.Context, req *provider.ChatRequest
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -220,12 +220,8 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 
 	if len(raw.Choices) > 0 {
 		msg := raw.Choices[0].Message
-		// reasoning_content 合并到 content 前缀
-		if msg.ReasoningContent != "" {
-			resp.Content = "/* reasoning */ " + msg.ReasoningContent + "\n" + msg.Content
-		} else {
-			resp.Content = msg.Content
-		}
+		resp.Content = msg.Content
+		resp.ReasoningContent = msg.ReasoningContent
 
 		for _, tc := range msg.ToolCalls {
 			var args map[string]any
@@ -273,15 +269,17 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 
 		var content string
 		var toolCalls []provider.ToolCallDelta
+		var extra map[string]any
 
 		if len(chunk.Choices) > 0 {
 			delta := chunk.Choices[0].Delta
 
+			// DeepSeek thinking 模式：reasoning_content 和 content 分开处理
 			if delta.ReasoningContent != "" {
-				content += delta.ReasoningContent
+				extra = map[string]any{"reasoning_content": delta.ReasoningContent}
 			}
 			if delta.Content != "" {
-				content += delta.Content
+				content = delta.Content
 			}
 
 			for _, tc := range delta.ToolCalls {
@@ -303,7 +301,7 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 			}
 		}
 
-		return content, toolCalls, usage, nil, false, nil
+		return content, toolCalls, usage, extra, false, nil
 	})
 }
 

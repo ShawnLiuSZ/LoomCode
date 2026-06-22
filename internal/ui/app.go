@@ -67,9 +67,11 @@ type App struct {
 	skillsMgr *skills.Manager
 
 	// 模型选择状态
-	showModelPicker bool
-	modelList      []string
-	modelIdx       int
+	showModelPicker     bool
+	modelList           []modelPickerEntry
+	modelIdx            int
+	allProviders        []provider.Provider
+	allProviderModels   map[string][]provider.ModelInfo
 
 	// 成本
 	costTotal   float64
@@ -109,6 +111,12 @@ type chatMessage struct {
 	Content   string
 	ToolName  string
 	Timestamp time.Time
+}
+
+// modelPickerEntry 模型选择器条目（包含 provider 信息）
+type modelPickerEntry struct {
+	ProviderName string
+	ModelID      string
 }
 
 // 所有可用命令
@@ -193,6 +201,15 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 func (a *App) SetSessionManager(mgr *session.Manager) { a.sessionMgr = mgr }
 func (a *App) SetModel(m string)                       { a.model = m; a.agent.SetModel(m) }
 func (a *App) SetProgram(p *tea.Program)               { a.program = p }
+
+// SetProviders 设置所有 provider 列表（用于 /model 跨 provider 切换）
+func (a *App) SetProviders(providers []provider.Provider) {
+	a.allProviders = providers
+	a.allProviderModels = make(map[string][]provider.ModelInfo, len(providers))
+	for _, p := range providers {
+		a.allProviderModels[p.Name()] = p.Models()
+	}
+}
 
 // saveSession 将新消息保存到活动会话
 func (a *App) saveSession() {
@@ -329,23 +346,37 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "down":
 			a.modelIdx = (a.modelIdx + 1) % len(a.modelList)
+			a.viewport.SetContent(a.renderMessages(a.height - 8))
 			return a, nil
 		case "up":
 			a.modelIdx = (a.modelIdx - 1 + len(a.modelList)) % len(a.modelList)
+			a.viewport.SetContent(a.renderMessages(a.height - 8))
 			return a, nil
 		case "enter":
 			if a.modelIdx >= 0 && a.modelIdx < len(a.modelList) {
-				a.model = a.modelList[a.modelIdx]
+				entry := a.modelList[a.modelIdx]
+				// 如果切换到不同 provider，需要切换 provider
+				if entry.ProviderName != a.provider.Name() {
+					for _, p := range a.allProviders {
+						if p.Name() == entry.ProviderName {
+							a.provider = p
+							break
+						}
+					}
+				}
+				a.model = entry.ModelID
 				a.agent.SetModel(a.model)
 				a.messages = append(a.messages, chatMessage{
-					Role: "system", Content: fmt.Sprintf("模型切换为: %s", a.model),
+					Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", entry.ProviderName, entry.ModelID),
 				})
 				a.viewport.SetContent(a.renderMessages(a.height - 8))
+				a.viewport.GotoBottom()
 			}
 			a.showModelPicker = false
 			return a, nil
 		case "esc":
 			a.showModelPicker = false
+			a.viewport.SetContent(a.renderMessages(a.height - 8))
 			return a, nil
 		}
 	}
@@ -624,37 +655,64 @@ func (a *App) handleGoalCmd(parts []string) (tea.Model, tea.Cmd) {
 
 func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		models := a.provider.Models()
-		if len(models) == 0 {
-			a.messages = append(a.messages, chatMessage{Role: "system", Content: "当前 Provider 没有注册模型"})
-			return a, nil
+		// 收集所有 provider 的所有模型
+		var entries []modelPickerEntry
+		currentProviderName := a.provider.Name()
+
+		// 先添加当前 provider 的模型
+		if a.allProviderModels != nil {
+			if models, ok := a.allProviderModels[currentProviderName]; ok {
+				for _, m := range models {
+					entries = append(entries, modelPickerEntry{
+						ProviderName: currentProviderName,
+						ModelID:      m.ID,
+					})
+				}
+			}
+			// 再添加其他 provider 的模型
+			for _, p := range a.allProviders {
+				if p.Name() == currentProviderName {
+					continue
+				}
+				if models, ok := a.allProviderModels[p.Name()]; ok {
+					for _, m := range models {
+						entries = append(entries, modelPickerEntry{
+							ProviderName: p.Name(),
+							ModelID:      m.ID,
+						})
+					}
+				}
+			}
 		}
 
-		a.modelList = make([]string, len(models))
-		for i, m := range models {
-			a.modelList[i] = m.ID
+		// 如果没有 allProviderModels，回退到只显示当前 provider 的模型
+		if len(entries) == 0 {
+			models := a.provider.Models()
+			if len(models) == 0 {
+				a.messages = append(a.messages, chatMessage{Role: "system", Content: "当前 Provider 没有注册模型"})
+				a.viewport.SetContent(a.renderMessages(a.height - 8))
+				a.viewport.GotoBottom()
+				return a, nil
+			}
+			for _, m := range models {
+				entries = append(entries, modelPickerEntry{
+					ProviderName: currentProviderName,
+					ModelID:      m.ID,
+				})
+			}
 		}
+
+		a.modelList = entries
 		a.modelIdx = 0
-		for i, id := range a.modelList {
-			if id == a.model {
+		for i, e := range a.modelList {
+			if e.ModelID == a.model && e.ProviderName == currentProviderName {
 				a.modelIdx = i
 				break
 			}
 		}
 		a.showModelPicker = true
-
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("选择模型 (↑↓ 移动, Enter 确认, Esc 取消):\n\n"))
-		sb.WriteString(fmt.Sprintf("当前: %s\n\n", a.model))
-		sb.WriteString("可用模型:\n")
-		for i, id := range a.modelList {
-			marker := "  "
-			if i == a.modelIdx {
-				marker = "▶ "
-			}
-			sb.WriteString(fmt.Sprintf("%s%s\n", marker, id))
-		}
-		a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+		a.viewport.SetContent(a.renderMessages(a.height - 8))
+		a.viewport.GotoBottom()
 		return a, nil
 	}
 
@@ -662,6 +720,8 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 	a.model = newModel
 	a.agent.SetModel(newModel)
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("模型切换为: %s", newModel)})
+	a.viewport.SetContent(a.renderMessages(a.height - 8))
+	a.viewport.GotoBottom()
 	return a, nil
 }
 
@@ -899,6 +959,61 @@ func (a *App) renderMessages(visibleLines int) string {
 		case "error":
 			for _, line := range strings.Split(msg.Content, "\n") {
 				sb.WriteString(errorStyle.Render("  ✖ " + line))
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	// 模型选择器：实时渲染（不持久化到 messages）
+	if a.showModelPicker {
+		sb.WriteString("\n")
+		sb.WriteString(systemStyle.Render("选择模型 (↑↓ 移动, Enter 确认, Esc 取消):"))
+		sb.WriteString("\n\n")
+		sb.WriteString(systemStyle.Render(fmt.Sprintf("当前: %s/%s", a.provider.Name(), a.model)))
+		sb.WriteString("\n\n")
+		// 按 provider 分组显示
+		currentProviderName := a.provider.Name()
+		// 先显示当前 provider
+		sb.WriteString(systemStyle.Render(fmt.Sprintf("[%s]", currentProviderName)))
+		sb.WriteString("\n")
+		for i, e := range a.modelList {
+			if e.ProviderName != currentProviderName {
+				continue
+			}
+			marker := "  "
+			if i == a.modelIdx {
+				marker = "▶ "
+			}
+			sb.WriteString(systemStyle.Render(fmt.Sprintf("%s%s", marker, e.ModelID)))
+			sb.WriteString("\n")
+		}
+		// 再显示其他 provider
+		for _, p := range a.allProviders {
+			if p.Name() == currentProviderName {
+				continue
+			}
+			hasModels := false
+			for _, e := range a.modelList {
+				if e.ProviderName == p.Name() {
+					hasModels = true
+					break
+				}
+			}
+			if !hasModels {
+				continue
+			}
+			sb.WriteString("\n")
+			sb.WriteString(systemStyle.Render(fmt.Sprintf("[%s]", p.Name())))
+			sb.WriteString("\n")
+			for i, e := range a.modelList {
+				if e.ProviderName != p.Name() {
+					continue
+				}
+				marker := "  "
+				if i == a.modelIdx {
+					marker = "▶ "
+				}
+				sb.WriteString(systemStyle.Render(fmt.Sprintf("%s%s", marker, e.ModelID)))
 				sb.WriteString("\n")
 			}
 		}

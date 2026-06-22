@@ -151,7 +151,7 @@ func ReadSSEStream(ctx context.Context, resp *http.Response, ch chan<- StreamEve
 			return
 		}
 
-		content, toolCalls, usage, _, done, err := handler(data)
+		content, toolCalls, usage, extra, done, err := handler(data)
 		if err != nil {
 			ch <- StreamEvent{Type: EventError, Content: err.Error()}
 			return
@@ -163,6 +163,13 @@ func ReadSSEStream(ctx context.Context, resp *http.Response, ch chan<- StreamEve
 
 		if content != "" {
 			ch <- StreamEvent{Type: EventText, Content: content}
+		}
+
+		// 处理 extra 字段（如 DeepSeek reasoning_content）
+		if extra != nil {
+			if reasoningContent, ok := extra["reasoning_content"].(string); ok && reasoningContent != "" {
+				ch <- StreamEvent{Type: EventText, ReasoningContent: reasoningContent}
+			}
 		}
 
 		for _, tc := range toolCalls {

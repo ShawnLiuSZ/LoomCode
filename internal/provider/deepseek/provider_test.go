@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
@@ -126,11 +125,11 @@ func TestParseChatResponse_Reasoning(t *testing.T) {
 		t.Fatalf("parseChatResponse() error: %v", err)
 	}
 
-	if !strings.Contains(resp.Content, "Let me think") {
-		t.Errorf("Content should contain reasoning: %q", resp.Content)
+	if resp.ReasoningContent != "Let me think about this..." {
+		t.Errorf("ReasoningContent = %q, want %q", resp.ReasoningContent, "Let me think about this...")
 	}
-	if !strings.Contains(resp.Content, "The answer is 42") {
-		t.Errorf("Content should contain final answer: %q", resp.Content)
+	if resp.Content != "The answer is 42" {
+		t.Errorf("Content = %q, want %q", resp.Content, "The answer is 42")
 	}
 }
 

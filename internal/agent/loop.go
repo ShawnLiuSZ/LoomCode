@@ -172,6 +172,7 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			}
 
 			var fullContent string
+			var reasoningContent string
 			var toolCalls []provider.ToolCall
 			var toolCallDeltas []provider.ToolCallDelta
 			var lastUsage *provider.Usage
@@ -179,8 +180,15 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			for event := range streamCh {
 				switch event.Type {
 				case provider.EventText:
-					fullContent += event.Content
-					textCh <- event.Content
+					if event.ReasoningContent != "" {
+						reasoningContent += event.ReasoningContent
+					} else {
+						fullContent += event.Content
+					}
+					// 只显示实际内容给用户，不显示推理过程
+					if event.Content != "" {
+						textCh <- event.Content
+					}
 				case provider.EventToolCall:
 					if event.ToolCall != nil {
 						toolCallDeltas = append(toolCallDeltas, *event.ToolCall)
@@ -203,8 +211,12 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			// 合并工具调用增量
 			toolCalls = mergeToolCallDeltas(toolCallDeltas)
 
-			// 追加 assistant 消息
-			assistantMsg := provider.Message{Role: "assistant", Content: fullContent}
+			// 追加 assistant 消息（包含 reasoning_content）
+			assistantMsg := provider.Message{
+				Role:             "assistant",
+				Content:          fullContent,
+				ReasoningContent: reasoningContent,
+			}
 			if len(toolCalls) > 0 {
 				for i := range toolCalls {
 					argsJSON, _ := json.Marshal(toolCalls[i].Args)
@@ -309,10 +321,11 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			a.onCost(cost.TotalCost)
 		}
 
-		// 追加 assistant 消息（含 tool_calls）
-		assistantMsg := provider.Message{Role: "assistant"}
-		if resp.Content != "" {
-			assistantMsg.Content = resp.Content
+		// 追加 assistant 消息（含 tool_calls 和 reasoning_content）
+		assistantMsg := provider.Message{
+			Role:             "assistant",
+			Content:          resp.Content,
+			ReasoningContent: resp.ReasoningContent,
 		}
 		if len(resp.ToolCalls) > 0 {
 			for i := range resp.ToolCalls {

@@ -171,8 +171,8 @@ func (p *OpenAIProvider) Stream(ctx context.Context, req *provider.ChatRequest) 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
 	}
 

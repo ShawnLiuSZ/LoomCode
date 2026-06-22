@@ -166,8 +166,8 @@ func (p *MiMoProvider) Stream(ctx context.Context, req *provider.ChatRequest) (<
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
 		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -199,8 +199,9 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 	var raw struct {
 		Choices []struct {
 			Message struct {
-				Content   string `json:"content"`
-				ToolCalls []struct {
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
+				ToolCalls        []struct {
 					ID       string `json:"id"`
 					Function struct {
 						Name      string `json:"name"`
@@ -229,8 +230,10 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 	}
 
 	if len(raw.Choices) > 0 {
-		resp.Content = raw.Choices[0].Message.Content
-		for _, tc := range raw.Choices[0].Message.ToolCalls {
+		msg := raw.Choices[0].Message
+		resp.Content = msg.Content
+		resp.ReasoningContent = msg.ReasoningContent
+		for _, tc := range msg.ToolCalls {
 			var args map[string]any
 			json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
@@ -247,8 +250,64 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 // readSSEStream 读取 SSE 流
 func (p *MiMoProvider) readSSEStream(ctx context.Context, resp *http.Response, ch chan<- provider.StreamEvent) {
 	provider.ReadSSEStream(ctx, resp, ch, func(data []byte) (string, []provider.ToolCallDelta, *provider.Usage, map[string]any, bool, error) {
-		content, toolCalls, usage, _ := provider.ParseStandardChunk(data)
-		return content, toolCalls, usage, nil, false, nil
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					ToolCalls        []struct {
+						ID       string `json:"id"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return "", nil, nil, nil, false, nil
+		}
+
+		var content string
+		var toolCalls []provider.ToolCallDelta
+		var extra map[string]any
+
+		if len(chunk.Choices) > 0 {
+			delta := chunk.Choices[0].Delta
+
+			if delta.ReasoningContent != "" {
+				extra = map[string]any{"reasoning_content": delta.ReasoningContent}
+			}
+			if delta.Content != "" {
+				content = delta.Content
+			}
+
+			for _, tc := range delta.ToolCalls {
+				toolCalls = append(toolCalls, provider.ToolCallDelta{
+					ID:        tc.ID,
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				})
+			}
+		}
+
+		var usage *provider.Usage
+		if chunk.Usage != nil {
+			usage = &provider.Usage{
+				PromptTokens:     chunk.Usage.PromptTokens,
+				CompletionTokens: chunk.Usage.CompletionTokens,
+				TotalTokens:      chunk.Usage.TotalTokens,
+			}
+		}
+
+		return content, toolCalls, usage, extra, false, nil
 	})
 }
 

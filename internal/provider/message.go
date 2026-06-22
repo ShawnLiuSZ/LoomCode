@@ -2,10 +2,11 @@ package provider
 
 // Message 对话消息
 type Message struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	ToolCallID string `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	Role             string `json:"role"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"` // DeepSeek thinking 模式
+	ToolCallID       string `json:"tool_call_id,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // ChatRequest 对话请求
@@ -31,9 +32,10 @@ type FunctionDef struct {
 
 // ChatResponse 对话响应
 type ChatResponse struct {
-	Content   string
-	ToolCalls []ToolCall
-	Usage     Usage
+	Content          string
+	ReasoningContent string // DeepSeek thinking 模式
+	ToolCalls        []ToolCall
+	Usage            Usage
 }
 
 // ToolCall 工具调用
@@ -52,10 +54,11 @@ type ToolCallFunc struct {
 
 // StreamEvent 流式事件
 type StreamEvent struct {
-	Type    StreamEventType
-	Content string
-	ToolCall *ToolCallDelta
-	Usage    *Usage
+	Type             StreamEventType
+	Content          string
+	ReasoningContent string // DeepSeek thinking 模式
+	ToolCall         *ToolCallDelta
+	Usage            *Usage
 }
 
 // StreamEventType 流式事件类型
