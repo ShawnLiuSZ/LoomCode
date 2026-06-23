@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ShawnLiuSZ/Helix/internal/tool"
 )
@@ -307,5 +308,98 @@ func TestMCPTool_Execute(t *testing.T) {
 	fmt.Println(result)
 	if result.Content != "Echo: hello world" {
 		t.Errorf("Content = %q", result.Content)
+	}
+}
+
+func TestClient_Reconnect(t *testing.T) {
+	dir := t.TempDir()
+	scriptPath := filepath.Join(dir, "reconnect_server.sh")
+
+	// 第一次启动的服务器
+	script := `#!/bin/bash
+read -r line
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"reconnect-server","version":"1.0"}}}'
+read -r line
+read -r line
+echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"ping","description":"Ping","inputSchema":{"type":"object"}}]}}'
+read -r line
+echo '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"pong"}]}}'
+sleep 60
+`
+	os.WriteFile(scriptPath, []byte(script), 0755)
+
+	client := NewClient("bash", scriptPath)
+	client.SetMaxRetries(2)
+
+	if err := client.Connect(); err != nil {
+		t.Fatalf("Connect error: %v", err)
+	}
+	defer client.Close()
+
+	// 验证初始连接
+	if client.ServerInfo().Name != "reconnect-server" {
+		t.Errorf("ServerInfo.Name = %q", client.ServerInfo().Name)
+	}
+
+	tools, err := client.ListTools()
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("tools count = %d, want 1", len(tools))
+	}
+
+	// 模拟服务器断连：关闭 stdin
+	client.mu.Lock()
+	client.stdin.Close()
+	client.mu.Unlock()
+
+	// 等待 readLoop 检测到断连
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证断连后 call 返回错误（由于没有真实重连目标，会失败）
+	_, err = client.CallTool("ping", nil)
+	if err == nil {
+		t.Error("expected error after disconnect")
+	}
+}
+
+func TestClient_RetryDelay(t *testing.T) {
+	c := &Client{}
+
+	// 验证指数退避
+	d1 := c.retryDelay(1)
+	d2 := c.retryDelay(2)
+	d3 := c.retryDelay(3)
+
+	if d1 <= 0 || d2 <= 0 || d3 <= 0 {
+		t.Errorf("delays should be positive: %v, %v, %v", d1, d2, d3)
+	}
+
+	// 大致验证退避递增（允许 jitter）
+	if d2 < d1/2 {
+		t.Errorf("d2 (%v) should be >= d1/2 (%v)", d2, d1/2)
+	}
+	if d3 < d2/2 {
+		t.Errorf("d3 (%v) should be >= d2/2 (%v)", d3, d2/2)
+	}
+}
+
+func TestIsDisconnectedErr(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{fmt.Errorf("server disconnected"), true},
+		{fmt.Errorf("write request: io: read/write on closed pipe"), true},
+		{fmt.Errorf("write request: write |1: broken pipe"), true},
+		{fmt.Errorf("request timeout (30s)"), false},
+		{fmt.Errorf("server error: something"), false},
+	}
+
+	for _, tt := range tests {
+		if got := isDisconnectedErr(tt.err); got != tt.want {
+			t.Errorf("isDisconnectedErr(%v) = %v, want %v", tt.err, got, tt.want)
+		}
 	}
 }

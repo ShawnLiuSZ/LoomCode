@@ -94,7 +94,7 @@ func runCommand(args []string) {
 	}
 
 	if task == "" {
-		fmt.Fprintln(os.Stderr, "Error: no task provided")
+		fmt.Fprintln(os.Stderr, "错误: 未提供任务")
 		os.Exit(1)
 	}
 
@@ -142,7 +142,7 @@ func runCommand(args []string) {
 	ctx := context.Background()
 	result, err := ag.Run(ctx, task)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nError: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n错误: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -289,19 +289,19 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 func chatCommand() {
 	cfg, err := loadConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "配置加载失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	provCfg, err := selectProvider(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider 选择失败: %v\n", err)
 		os.Exit(1)
 	}
 
 	p, err := createProvider(provCfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating provider: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider 创建失败: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -353,7 +353,7 @@ func chatCommand() {
 	program := tea.NewProgram(app, tea.WithAltScreen())
 	app.SetProgram(program)
 	if _, err := program.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "TUI 运行错误: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -458,7 +458,7 @@ func dashboardCommand(args []string) {
 
 	server := dashboard.NewServer(addr)
 	if err := server.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Dashboard 启动失败: %v\n", err)
 		os.Exit(1)
 	}
 }

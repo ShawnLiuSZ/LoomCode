@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ShawnLiuSZ/Helix/internal/agent"
+	"github.com/ShawnLiuSZ/Helix/internal/consts"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 	"github.com/ShawnLiuSZ/Helix/internal/session"
 	"github.com/ShawnLiuSZ/Helix/internal/skills"
@@ -1178,10 +1179,16 @@ func (a *App) renderMarkdown(content string) string {
 	}
 	result := strings.TrimRight(rendered, "\n")
 
-	// 缓存结果（限制缓存大小，避免内存无限增长）
-	if len(a.renderCache) < 500 {
-		a.renderCache[content] = result
+	// 缓存结果（满了则清空一半，避免内存无限增长）
+	if len(a.renderCache) >= consts.MaxRenderCacheEntries {
+		for k := range a.renderCache {
+			delete(a.renderCache, k)
+			if len(a.renderCache) <= consts.MaxRenderCacheEntries/2 {
+				break
+			}
+		}
 	}
+	a.renderCache[content] = result
 
 	return result
 }
@@ -1204,10 +1211,10 @@ func (a *App) renderStatusBar() string {
 }
 
 func (a *App) renderCost() string {
-	if a.costSession < 0.05 {
+	if a.costSession < consts.CostGreenThreshold {
 		return costGreenStyle.Render(fmt.Sprintf("$%.4f", a.costSession))
 	}
-	if a.costSession < 0.20 {
+	if a.costSession < consts.CostYellowThreshold {
 		return costYellowStyle.Render(fmt.Sprintf("$%.4f", a.costSession))
 	}
 	return costRedStyle.Render(fmt.Sprintf("$%.4f", a.costSession))
@@ -1327,6 +1334,10 @@ func (a *App) handleEnvCommand(parts []string) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		key := parts[2]
+		if !isValidEnvKey(key) {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("无效的环境变量名: %q（仅允许字母、数字、下划线，且不能以数字开头）", key)})
+			return a, nil
+		}
 		val := strings.Join(parts[3:], " ")
 		os.Setenv(key, val)
 		a.envVars[key] = maskValue(val)
@@ -1382,4 +1393,20 @@ func (a *App) processQueue() tea.Cmd {
 	a.viewport.GotoBottom()
 
 	return a.runAgent(ctx, next)
+}
+
+// isValidEnvKey 校验环境变量名：仅允许字母、数字、下划线，且不能以数字开头
+func isValidEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 && r >= '0' && r <= '9' {
+			return false
+		}
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+			return false
+		}
+	}
+	return true
 }

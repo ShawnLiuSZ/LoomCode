@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"os/exec"
 	"sync"
@@ -30,6 +31,13 @@ func filterEnvForSubprocess() []string {
 	return filtered
 }
 
+const (
+	defaultMaxRetries = 3
+	baseRetryDelay    = 1 * time.Second
+	maxRetryDelay     = 30 * time.Second
+	rpcTimeout        = 30 * time.Second
+)
+
 // Client MCP 客户端（stdio transport）
 type Client struct {
 	cmd    *exec.Cmd
@@ -46,34 +54,54 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[int64]chan *Response
 	done      chan struct{}
+
+	// 重连配置
+	command     string
+	args        []string
+	maxRetries  int
+	reconnecting atomic.Bool
 }
 
 // NewClient 创建 MCP 客户端
 func NewClient(command string, args ...string) *Client {
-	cmd := exec.Command(command, args...)
-	cmd.Env = filterEnvForSubprocess()
 	return &Client{
-		cmd:     cmd,
-		pending: make(map[int64]chan *Response),
-		done:    make(chan struct{}),
+		command:    command,
+		args:       args,
+		maxRetries: defaultMaxRetries,
+		pending:    make(map[int64]chan *Response),
+		done:       make(chan struct{}),
 	}
+}
+
+// SetMaxRetries 设置最大重试次数
+func (c *Client) SetMaxRetries(n int) {
+	c.maxRetries = n
 }
 
 // Connect 连接并初始化
 func (c *Client) Connect() error {
-	stdin, err := c.cmd.StdinPipe()
+	return c.connect()
+}
+
+// connect 内部连接实现
+func (c *Client) connect() error {
+	cmd := exec.Command(c.command, c.args...)
+	cmd.Env = filterEnvForSubprocess()
+	c.cmd = cmd
+
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("stdin pipe: %w", err)
 	}
 	c.stdin = stdin
 
-	stdout, err := c.cmd.StdoutPipe()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	c.stdout = bufio.NewReader(stdout)
 
-	if err := c.cmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start server: %w", err)
 	}
 
@@ -92,7 +120,7 @@ func (c *Client) Connect() error {
 		},
 	}
 
-	resp, err := c.call(MethodInitialize, initParams)
+	resp, err := c.callRaw(MethodInitialize, initParams)
 	if err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
@@ -109,6 +137,84 @@ func (c *Client) Connect() error {
 	c.sendNotification("notifications/initialized", nil)
 
 	return nil
+}
+
+// reconnect 尝试重连 MCP 服务器
+func (c *Client) reconnect() error {
+	if !c.reconnecting.CompareAndSwap(false, true) {
+		return fmt.Errorf("reconnection already in progress")
+	}
+	defer c.reconnecting.Store(false)
+
+	// 清理旧进程
+	c.cleanup()
+
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := c.retryDelay(attempt)
+			time.Sleep(delay)
+		}
+
+		if err := c.connect(); err != nil {
+			lastErr = err
+			continue
+		}
+
+		// 重连成功，重新注册所有 pending 请求
+		c.pendingMu.Lock()
+		pending := make(map[int64]chan *Response, len(c.pending))
+		for id, ch := range c.pending {
+			pending[id] = ch
+		}
+		c.pendingMu.Unlock()
+
+		// 对于重连后的 pending 请求，发送新的请求
+		for id, ch := range pending {
+			// 由于重连后协议状态已重置，pending 请求需要重新发送
+			// 但调用方不知道重连发生了，所以直接通知失败
+			select {
+			case ch <- &Response{
+				JSONRPC: jsonrpcVersion,
+				ID:      id,
+				Error:   &RPCError{Code: -32000, Message: "server reconnected, request lost"},
+			}:
+			default:
+			}
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("reconnect failed after %d attempts: %w", c.maxRetries+1, lastErr)
+}
+
+// retryDelay 计算指数退避延迟（带 jitter）
+func (c *Client) retryDelay(attempt int) time.Duration {
+	delay := baseRetryDelay
+	for i := 1; i < attempt; i++ {
+		delay *= 2
+		if delay > maxRetryDelay {
+			delay = maxRetryDelay
+			break
+		}
+	}
+	// 添加 jitter（±25%）
+	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+	return delay - jitter/2 + jitter/2
+}
+
+// cleanup 清理当前连接资源
+func (c *Client) cleanup() {
+	if c.stdin != nil {
+		c.stdin.Close()
+		c.stdin = nil
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
+		c.cmd.Process.Kill()
+		c.cmd.Wait()
+		c.cmd = nil
+	}
 }
 
 // readLoop 后台读取循环，按 ID 路由响应
@@ -139,8 +245,21 @@ func (c *Client) readLoop() {
 	}
 }
 
-// call 发送请求并等待响应（带超时）
+// call 发送请求并等待响应（带超时和自动重连）
 func (c *Client) call(method string, params any) (*Response, error) {
+	resp, err := c.callRaw(method, params)
+	if err != nil && isDisconnectedErr(err) && c.maxRetries > 0 {
+		if rerr := c.reconnect(); rerr != nil {
+			return nil, fmt.Errorf("server disconnected and reconnect failed: %w", rerr)
+		}
+		// 重连成功，重试原始请求
+		return c.callRaw(method, params)
+	}
+	return resp, err
+}
+
+// callRaw 发送请求并等待响应（不重连）
+func (c *Client) callRaw(method string, params any) (*Response, error) {
 	id := c.nextID.Add(1)
 	req, err := NewRequest(id, method, params)
 	if err != nil {
@@ -155,7 +274,12 @@ func (c *Client) call(method string, params any) (*Response, error) {
 
 	// 写入请求（需要锁保护 stdin）
 	c.mu.Lock()
-	data, _ := json.Marshal(req)
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.mu.Unlock()
+		c.cancelPending(id)
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	data = append(data, '\n')
 	if _, err := c.stdin.Write(data); err != nil {
 		c.mu.Unlock()
@@ -164,20 +288,28 @@ func (c *Client) call(method string, params any) (*Response, error) {
 	}
 	c.mu.Unlock()
 
-	// 等待响应（30 秒超时）
+	// 等待响应
 	select {
 	case resp := <-respCh:
 		if resp.Error != nil {
 			return nil, fmt.Errorf("server error: %s", resp.Error.Message)
 		}
 		return resp, nil
-	case <-time.After(30 * time.Second):
+	case <-time.After(rpcTimeout):
 		c.cancelPending(id)
-		return nil, fmt.Errorf("request timeout (30s)")
+		return nil, fmt.Errorf("request timeout (%v)", rpcTimeout)
 	case <-c.done:
 		c.cancelPending(id)
 		return nil, fmt.Errorf("server disconnected")
 	}
+}
+
+// isDisconnectedErr 判断是否为断连错误
+func isDisconnectedErr(err error) bool {
+	msg := err.Error()
+	return msg == "server disconnected" ||
+		msg == "write request: io: read/write on closed pipe" ||
+		msg == "write request: write |1: broken pipe"
 }
 
 // cancelPending 清理超时的 pending 请求
@@ -189,13 +321,7 @@ func (c *Client) cancelPending(id int64) {
 
 // Close 关闭连接
 func (c *Client) Close() error {
-	if c.stdin != nil {
-		c.stdin.Close()
-	}
-	if c.cmd != nil && c.cmd.Process != nil {
-		c.cmd.Process.Kill()
-		c.cmd.Wait()
-	}
+	c.cleanup()
 	return nil
 }
 
@@ -251,11 +377,17 @@ func (c *Client) sendNotification(method string, params any) {
 	}
 
 	if params != nil {
-		data, _ := json.Marshal(params)
+		data, err := json.Marshal(params)
+		if err != nil {
+			return
+		}
 		notif.Params = data
 	}
 
-	data, _ := json.Marshal(notif)
+	data, err := json.Marshal(notif)
+	if err != nil {
+		return
+	}
 	data = append(data, '\n')
 	c.stdin.Write(data)
 }

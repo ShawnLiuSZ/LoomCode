@@ -70,7 +70,9 @@ func parseToolCalls(raw string) ([]RepairedCall, error) {
 	var result []RepairedCall
 	for _, c := range calls {
 		var args map[string]any
-		json.Unmarshal([]byte(c.Function.Arguments), &args)
+		if err := json.Unmarshal([]byte(c.Function.Arguments), &args); err != nil {
+			args = nil
+		}
 		result = append(result, RepairedCall{
 			Name: c.Function.Name,
 			Args: args,
@@ -151,7 +153,9 @@ func (s *ScavengeStep) Repair(reasoning string, raw string) ([]RepairedCall, err
 
 	var args map[string]any
 	if len(argMatches) >= 2 {
-		json.Unmarshal([]byte(argMatches[1]), &args)
+		if err := json.Unmarshal([]byte(argMatches[1]), &args); err != nil {
+			args = nil
+		}
 	}
 	if args == nil {
 		args = make(map[string]any)

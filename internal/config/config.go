@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -95,6 +97,10 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("validate config: %w", err)
+	}
+
 	return &cfg, nil
 }
 
@@ -129,6 +135,78 @@ func (c *Config) resolveAPIKeys() error {
 		}
 	}
 	return nil
+}
+
+// knownProviderKinds 已知的 Provider 类型
+var knownProviderKinds = map[string]bool{
+	"deepseek": true,
+	"mimo":     true,
+	"openai":   true,
+}
+
+// Validate 校验配置合法性
+func (c *Config) Validate() error {
+	// 校验 DefaultProvider 引用是否存在
+	if c.DefaultProvider != "" {
+		found := false
+		for _, p := range c.Providers {
+			if p.Name == c.DefaultProvider {
+				found = true
+				break
+			}
+		}
+		if !found && len(c.Providers) > 0 {
+			return fmt.Errorf("default_provider %q not found in providers", c.DefaultProvider)
+		}
+	}
+
+	for i, p := range c.Providers {
+		if p.Name == "" {
+			return fmt.Errorf("providers[%d]: name is required", i)
+		}
+		if p.Kind == "" {
+			return fmt.Errorf("provider %q: kind is required", p.Name)
+		}
+		if !knownProviderKinds[p.Kind] {
+			return fmt.Errorf("provider %q: unknown kind %q (supported: deepseek, mimo, openai)", p.Name, p.Kind)
+		}
+		if p.BaseURL == "" {
+			return fmt.Errorf("provider %q: base_url is required", p.Name)
+		}
+		if !isValidURL(p.BaseURL) {
+			return fmt.Errorf("provider %q: base_url %q is not a valid URL", p.Name, p.BaseURL)
+		}
+		if len(p.Models) == 0 {
+			return fmt.Errorf("provider %q: at least one model is required", p.Name)
+		}
+
+		for j, m := range p.Models {
+			if m.ID == "" {
+				return fmt.Errorf("provider %q, models[%d]: id is required", p.Name, j)
+			}
+			if m.ContextWindow < 0 {
+				return fmt.Errorf("provider %q, model %q: context_window must be non-negative, got %d", p.Name, m.ID, m.ContextWindow)
+			}
+			if m.Cost.Input < 0 || m.Cost.Output < 0 || m.Cost.CachedInput < 0 {
+				return fmt.Errorf("provider %q, model %q: cost values must be non-negative", p.Name, m.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// isValidURL 校验 URL 格式
+func isValidURL(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return u.Scheme != "" && u.Host != ""
 }
 
 // GetProvider 根据名称查找 Provider 配置

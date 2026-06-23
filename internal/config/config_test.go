@@ -127,3 +127,156 @@ func TestLoadDefault(t *testing.T) {
 		t.Errorf("DefaultProvider = %q", cfg.DefaultProvider)
 	}
 }
+
+func TestValidate_DefaultProviderNotFound(t *testing.T) {
+	cfg := &Config{
+		DefaultProvider: "nonexistent",
+		Providers: []ProviderConfig{
+			{Name: "deepseek", Kind: "deepseek", BaseURL: "https://api.deepseek.com",
+				Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for missing default_provider")
+	}
+}
+
+func TestValidate_ProviderNoName(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Kind: "openai", BaseURL: "https://api.openai.com", Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for provider without name")
+	}
+}
+
+func TestValidate_ProviderNoKind(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", BaseURL: "https://api.test.com", Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for provider without kind")
+	}
+}
+
+func TestValidate_ProviderUnknownKind(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "unknown", BaseURL: "https://api.test.com",
+				Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for unknown provider kind")
+	}
+}
+
+func TestValidate_ProviderNoBaseURL(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for provider without base_url")
+	}
+}
+
+func TestValidate_ProviderInvalidURL(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", BaseURL: "not-a-url",
+				Models: []ModelConfig{{ID: "m1"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
+
+func TestValidate_ProviderNoModels(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", BaseURL: "https://api.openai.com"},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for provider without models")
+	}
+}
+
+func TestValidate_ModelNoID(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", BaseURL: "https://api.openai.com",
+				Models: []ModelConfig{{Name: "no-id"}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for model without id")
+	}
+}
+
+func TestValidate_ModelNegativeContextWindow(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", BaseURL: "https://api.openai.com",
+				Models: []ModelConfig{{ID: "m1", ContextWindow: -100}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative context_window")
+	}
+}
+
+func TestValidate_ModelNegativeCost(t *testing.T) {
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{Name: "test", Kind: "openai", BaseURL: "https://api.openai.com",
+				Models: []ModelConfig{{ID: "m1", Cost: CostConfig{Input: -1}}}},
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("expected error for negative cost")
+	}
+}
+
+func TestValidate_Valid(t *testing.T) {
+	cfg := &Config{
+		DefaultProvider: "deepseek",
+		Providers: []ProviderConfig{
+			{
+				Name: "deepseek", Kind: "deepseek", BaseURL: "https://api.deepseek.com",
+				Models: []ModelConfig{{ID: "m1", ContextWindow: 131072, Cost: CostConfig{Input: 0.14, Output: 0.28}}},
+			},
+		},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("unexpected validation error: %v", err)
+	}
+}
+
+func TestLoad_Validation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad.toml")
+
+	content := `
+[[providers]]
+name = "test"
+kind = "unknown"
+base_url = "https://api.test.com"
+
+  [[providers.models]]
+  id = "m1"
+`
+	os.WriteFile(path, []byte(content), 0644)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for invalid config")
+	}
+}

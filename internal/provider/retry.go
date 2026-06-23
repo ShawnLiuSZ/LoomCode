@@ -4,8 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/ShawnLiuSZ/Helix/internal/consts"
 )
 
 // RetryConfig HTTP 重试配置
@@ -68,7 +73,7 @@ func (c *RetryableHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {
-			delay := c.backoff(attempt)
+			delay := c.retryDelay(attempt, nil)
 			select {
 			case <-req.Context().Done():
 				return nil, req.Context().Err()
@@ -92,8 +97,22 @@ func (c *RetryableHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 		// 检查是否需要重试的状态码
 		if c.shouldRetry(resp.StatusCode) {
-			resp.Body.Close()
 			lastErr = fmt.Errorf("retryable status %d", resp.StatusCode)
+
+			// 429: 尊重 Retry-After 头
+			if resp.StatusCode == http.StatusTooManyRequests {
+				if retryAfter := parseRetryAfter(resp.Header.Get("Retry-After")); retryAfter > 0 {
+					resp.Body.Close()
+					select {
+					case <-req.Context().Done():
+						return nil, req.Context().Err()
+					case <-time.After(retryAfter):
+					}
+					continue
+				}
+			}
+
+			resp.Body.Close()
 			continue
 		}
 
@@ -103,6 +122,17 @@ func (c *RetryableHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("max retries (%d) exceeded: %w", c.config.MaxRetries, lastErr)
 }
 
+// retryDelay 计算重试延迟（支持 Retry-After 覆盖 + jitter）
+func (c *RetryableHTTPClient) retryDelay(attempt int, retryAfter *time.Duration) time.Duration {
+	var delay time.Duration
+	if retryAfter != nil && *retryAfter > 0 {
+		delay = *retryAfter
+	} else {
+		delay = c.backoff(attempt)
+	}
+	return c.addJitter(delay)
+}
+
 // backoff 指数退避延迟计算
 func (c *RetryableHTTPClient) backoff(attempt int) time.Duration {
 	delay := float64(c.config.BaseDelay) * math.Pow(2, float64(attempt-1))
@@ -110,6 +140,52 @@ func (c *RetryableHTTPClient) backoff(attempt int) time.Duration {
 		delay = float64(c.config.MaxDelay)
 	}
 	return time.Duration(delay)
+}
+
+// addJitter 添加 ±25% 随机抖动
+func (c *RetryableHTTPClient) addJitter(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return delay
+	}
+	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
+	return delay - jitter/2 + jitter/2
+}
+
+// parseRetryAfter 解析 Retry-After 头
+// 支持两种格式：秒数（"120"）和 HTTP-date（"Wed, 21 Oct 2015 07:28:00 GMT"）
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	// 尝试解析为秒数
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds < 0 {
+			return 0
+		}
+		d := time.Duration(seconds) * time.Second
+		// 安全上限：最多等待 5 分钟
+		if d > 5*time.Minute {
+			d = 5 * time.Minute
+		}
+		return d
+	}
+
+	// 尝试解析为 HTTP-date
+	if t, err := time.Parse(time.RFC1123, value); err == nil {
+		d := time.Until(t)
+		if d < 0 {
+			return 0
+		}
+		// 安全上限：最多等待 5 分钟
+		if d > 5*time.Minute {
+			d = 5 * time.Minute
+		}
+		return d
+	}
+
+	return 0
 }
 
 // shouldRetry 判断状态码是否需要重试
@@ -124,6 +200,6 @@ func (c *RetryableHTTPClient) shouldRetry(statusCode int) bool {
 
 // DoWithRetry 便捷函数：使用默认配置执行带重试的请求
 func DoWithRetry(ctx context.Context, req *http.Request) (*http.Response, error) {
-	client := NewRetryableClient(120 * time.Second)
+	client := NewRetryableClient(consts.DefaultHTTPTimeout)
 	return client.Do(req.WithContext(ctx))
 }

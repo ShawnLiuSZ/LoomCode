@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/ShawnLiuSZ/Helix/internal/consts"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 )
 
@@ -60,8 +61,8 @@ func NewCostController(primaryModel, fallbackModel string) *CostController {
 		primaryModel:     primaryModel,
 		fallbackModel:    fallbackModel,
 		auxModel:         primaryModel, // 辅助调用默认也用 flash
-		greenThreshold:   0.05,
-		yellowThreshold:  0.20,
+		greenThreshold:   consts.CostGreenThreshold,
+		yellowThreshold:  consts.CostYellowThreshold,
 		compressThreshold: 3000,
 	}
 }

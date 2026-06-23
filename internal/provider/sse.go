@@ -202,7 +202,7 @@ func ParseStandardChunk(data []byte) (content string, toolCalls []ToolCallDelta,
 	}
 
 	if err := json.Unmarshal(data, &chunk); err != nil {
-		return "", nil, nil, nil
+		return "", nil, nil, fmt.Errorf("parse SSE chunk: %w", err)
 	}
 
 	if len(chunk.Choices) > 0 {

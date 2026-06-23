@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ShawnLiuSZ/Helix/internal/consts"
 	"github.com/ShawnLiuSZ/Helix/internal/provider"
 )
 
@@ -54,7 +55,7 @@ func (a *Adapter) Create(cfg provider.Config) (provider.Provider, error) {
 		name:   cfg.Name,
 		models: models,
 		caps:   caps,
-		client: provider.NewRetryableClient(120 * time.Second),
+		client: provider.NewRetryableClient(consts.DefaultHTTPTimeout),
 		cfg:    cfg,
 	}, nil
 }
@@ -175,7 +176,7 @@ func (p *DeepSeekProvider) Stream(ctx context.Context, req *provider.ChatRequest
 		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	ch := make(chan provider.StreamEvent, 100)
+	ch := make(chan provider.StreamEvent, consts.StreamChannelBufferSize)
 	go p.readDeepSeekStream(resp, ch)
 
 	return ch, nil
@@ -225,7 +226,9 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 
 		for _, tc := range msg.ToolCalls {
 			var args map[string]any
-			json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				args = nil
+			}
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
 				ID:   tc.ID,
 				Function: provider.ToolCallFunc{Name: tc.Function.Name},
@@ -264,7 +267,7 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 		}
 
 		if err := json.Unmarshal(data, &chunk); err != nil {
-			return "", nil, nil, nil, false, nil
+			return "", nil, nil, nil, false, fmt.Errorf("parse deepseek SSE chunk: %w", err)
 		}
 
 		var content string

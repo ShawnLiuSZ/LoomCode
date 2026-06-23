@@ -83,7 +83,7 @@ func (c *Client) Connect() error {
 	var info struct {
 		ServerInfo *ServerInfo `json:"serverInfo"`
 	}
-	json.Unmarshal(result, &info)
+	json.Unmarshal(result, &info) //nolint:errcheck // serverInfo is optional
 	if info.ServerInfo != nil {
 		c.serverInfo = info.ServerInfo
 	}
