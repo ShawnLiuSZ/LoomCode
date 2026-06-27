@@ -307,9 +307,16 @@ func (a *App) saveSession() {
 	if a.sessionMgr == nil {
 		return
 	}
-	// 懒创建默认会话：首次启动未指定 --session 时也能持久化，且不会在每次启动时产生空会话文件。
+	// 懒创建默认会话：仅当用户实际输入过消息时才创建，避免仅含 welcome/system 消息的空会话文件（L9）。
 	if a.activeSess == nil {
-		if len(a.messages) == 0 {
+		hasUserMsg := false
+		for _, m := range a.messages {
+			if m.Role == "user" {
+				hasUserMsg = true
+				break
+			}
+		}
+		if !hasUserMsg {
 			return
 		}
 		a.activeSess = a.sessionMgr.Create("default", a.model, a.provider.Name())

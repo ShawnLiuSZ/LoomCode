@@ -27,8 +27,10 @@ type SSEClient struct {
 	initialized   bool
 	sessionID     string
 	lastDataTime  atomic.Int64
-	notifyReconnect chan struct{}
+	notifyCh      chan struct{}
 	reconnecting  atomic.Int32
+	notifyMu      sync.Mutex
+	closeOnce     sync.Once
 }
 
 // SSEEvent SSE 事件
@@ -41,10 +43,10 @@ type SSEEvent struct {
 // NewSSEClient 创建 SSE 客户端
 func NewSSEClient(baseURL string) *SSEClient {
 	return &SSEClient{
-		baseURL:         strings.TrimSuffix(baseURL, "/"),
-		httpClient:      &http.Client{Timeout: 30 * time.Second},
-		eventCh:         make(chan SSEEvent, 100),
-		notifyReconnect: make(chan struct{}, 1),
+		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		eventCh:    make(chan SSEEvent, 100),
+		notifyCh:   make(chan struct{}, 1),
 	}
 }
 
@@ -183,16 +185,21 @@ func (c *SSEClient) listenSSE(ctx context.Context, endpoint string) {
 		delay = initialDelay
 		c.lastDataTime.Store(time.Now().UnixMilli())
 
+		// 为本次 SSE 流创建独立 cancel，让 heartbeat 超时能关闭 body
+		sseCtx, sseCancel := context.WithCancel(ctx)
 		done := make(chan struct{})
-		go c.heartbeatMonitor(ctx, done)
+		go c.heartbeatMonitor(sseCtx, resp.Body, done)
 
-		c.readSSEStream(ctx, resp.Body)
+		c.readSSEStream(sseCtx, resp.Body)
+		sseCancel()
 		resp.Body.Close()
 		close(done)
 
 		c.reconnecting.Store(1)
-		n := make(chan struct{}, 1)
-		c.notifyReconnect = n
+		c.notifyMu.Lock()
+		close(c.notifyCh)
+		c.notifyCh = make(chan struct{}, 1)
+		c.notifyMu.Unlock()
 
 		delay, attempts = c.reconnectWithBackoff(ctx, delay, initialDelay, maxDelay, multiplier, jitterPct, maxAttempts, &attempts)
 	}
@@ -223,7 +230,7 @@ func (c *SSEClient) reconnectWithBackoff(ctx context.Context, delay, initialDela
 	return nextDelay, *attempts
 }
 
-func (c *SSEClient) heartbeatMonitor(ctx context.Context, done chan struct{}) {
+func (c *SSEClient) heartbeatMonitor(ctx context.Context, body io.ReadCloser, done chan struct{}) {
 	const heartbeatTimeout = 60 * time.Second
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -237,6 +244,8 @@ func (c *SSEClient) heartbeatMonitor(ctx context.Context, done chan struct{}) {
 		case <-ticker.C:
 			lastTime := time.UnixMilli(c.lastDataTime.Load())
 			if time.Since(lastTime) > heartbeatTimeout {
+				// 关闭 body 让 readSSEStream 的 scanner.Scan() 返回 error 退出
+				body.Close()
 				return
 			}
 		}
@@ -257,29 +266,44 @@ func (c *SSEClient) readSSEStream(ctx context.Context, body io.Reader) {
 		line := scanner.Text()
 
 		if strings.HasPrefix(line, "event:") {
-			event.Event = strings.TrimPrefix(line, "event: ")
+			event.Event = trimSSEField(line, "event:")
 		} else if strings.HasPrefix(line, "data:") {
-			event.Data = strings.TrimPrefix(line, "data: ")
+			event.Data = trimSSEField(line, "data:")
 		} else if strings.HasPrefix(line, "id:") {
-			event.ID = strings.TrimPrefix(line, "id: ")
+			event.ID = trimSSEField(line, "id:")
 		} else if line == "" {
 			// 空行表示事件结束
 			if event.Data != "" {
 				c.lastDataTime.Store(time.Now().UnixMilli())
-				select {
-				case c.eventCh <- event:
-				default:
-				}
+				c.safeSendEvent(event)
 			}
 			event = SSEEvent{}
 		}
 	}
 }
 
-// Close 关闭连接
+// Close 关闭连接。用 sync.Once 防止重复 close panic。
 func (c *SSEClient) Close() error {
-	close(c.eventCh)
+	c.closeOnce.Do(func() {
+		close(c.eventCh)
+	})
 	return nil
+}
+
+// safeSendEvent 向 eventCh 非阻塞发送事件，recover 防止 Close 后 send-on-closed panic。
+func (c *SSEClient) safeSendEvent(event SSEEvent) {
+	defer func() { recover() }() // 防止 Close 后 send-on-closed channel panic
+	select {
+	case c.eventCh <- event:
+	default:
+	}
+}
+
+// trimSSEField 去除 SSE 字段前缀，兼容 "field: value" 和 "field:value" 两种形式。
+func trimSSEField(line, prefix string) string {
+	rest := strings.TrimPrefix(line, prefix)
+	rest = strings.TrimPrefix(rest, " ") // 有空格则去一个
+	return rest
 }
 
 // ServerInfo 返回服务器信息
@@ -368,35 +392,29 @@ func (c *SSEClient) call(ctx context.Context, method string, params any) (*Respo
 
 // waitForResponse 等待响应
 func (c *SSEClient) waitForResponse(ctx context.Context, id int64) (*Response, error) {
-	return c.waitForResponseWithRetry(ctx, id, true)
+	return c.waitForResponseWithRetry(ctx, id)
 }
 
-func (c *SSEClient) waitForResponseWithRetry(ctx context.Context, id int64, canRetry bool) (*Response, error) {
+// waitForResponseWithRetry 等待响应，支持重连后重试。
+// 每次循环重新获取 c.notifyCh，避免重连期间通道被替换后错过信号（L5）。
+func (c *SSEClient) waitForResponseWithRetry(ctx context.Context, id int64) (*Response, error) {
 	timeout := time.After(30 * time.Second)
 
-	var notifyCh chan struct{}
-	if c.notifyReconnect != nil {
-		notifyCh = c.notifyReconnect
-	}
-
 	for {
+		// 每次循环重新获取 notifyCh，防止重连时通道被 close+替换导致等待者错过信号
+		c.notifyMu.Lock()
+		notifyCh := c.notifyCh
+		c.notifyMu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-timeout:
-			if canRetry && c.reconnecting.Load() == 1 {
-				c.reconnecting.Store(0)
-				time.Sleep(2 * time.Second)
-				return c.waitForResponseWithRetry(ctx, id, false)
-			}
 			return nil, fmt.Errorf("timeout waiting for response")
 		case <-notifyCh:
-			if canRetry {
-				c.reconnecting.Store(0)
-				time.Sleep(2 * time.Second)
-				return c.waitForResponseWithRetry(ctx, id, false)
-			}
-			return nil, fmt.Errorf("connection lost waiting for response")
+			// 连接断开通知：等待重连（sleep 2s 给 SSE 流重建时间），然后重新尝试
+			time.Sleep(2 * time.Second)
+			continue
 		case event := <-c.eventCh:
 			if event.Event == "message" || event.Event == "" {
 				var msg struct {

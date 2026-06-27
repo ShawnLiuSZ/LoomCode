@@ -424,6 +424,13 @@ func (a *MultiAgent) runMax(ctx context.Context, task string) (string, error) {
 }
 
 func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candidates []string) (string, error) {
+	if len(candidates) <= 1 {
+		if len(candidates) == 1 && candidates[0] != "" && !strings.HasPrefix(candidates[0], "[error:") {
+			return candidates[0], nil
+		}
+		return "", fmt.Errorf("not enough valid candidates to judge")
+	}
+
 	var sb strings.Builder
 	sb.WriteString("You are a judge evaluating candidate answers to a coding task.\n\n")
 	sb.WriteString("## Task\n")
@@ -432,8 +439,8 @@ func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candid
 	for i, c := range candidates {
 		sb.WriteString(fmt.Sprintf("### Candidate %d\n%s\n\n", i+1, c))
 	}
-	sb.WriteString("Select the best candidate based on correctness, completeness, and code quality.\n")
-	sb.WriteString("Return ONLY the number (1, 2, or 3) of the best candidate. No explanation.")
+	sb.WriteString(fmt.Sprintf("Select the best candidate based on correctness, completeness, and code quality.\n"))
+	sb.WriteString(fmt.Sprintf("Return ONLY the number (1-%d) of the best candidate. No explanation.", len(candidates)))
 
 	resp, err := a.provider.Chat(ctx, &provider.ChatRequest{
 		Messages: []provider.Message{
@@ -446,7 +453,7 @@ func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candid
 
 	choice := strings.TrimSpace(resp.Content)
 	for _, ch := range choice {
-		if ch >= '1' && ch <= '3' {
+		if ch >= '1' && ch <= '9' {
 			idx := int(ch - '1')
 			if idx < len(candidates) && candidates[idx] != "" && !strings.HasPrefix(candidates[idx], "[error:") {
 				return candidates[idx], nil
@@ -484,16 +491,20 @@ func (a *MultiAgent) buildReadOnlyToolDefs() []provider.ToolDef {
 	for _, t := range allTools {
 		if t.IsReadOnly() {
 			schema := t.Schema()
+			params := map[string]any{
+				"type":       schema.Type,
+				"properties": schema.Properties,
+			}
+			// 仅在非空时设置 required，避免 nil slice 序列化成 "required": null
+			if len(schema.Required) > 0 {
+				params["required"] = schema.Required
+			}
 			defs = append(defs, provider.ToolDef{
 				Type: "function",
 				Function: provider.FunctionDef{
 					Name:        t.Name(),
 					Description: t.Description(),
-					Parameters: map[string]any{
-						"type":       schema.Type,
-						"properties": schema.Properties,
-						"required":   schema.Required,
-					},
+					Parameters:  params,
 				},
 			})
 		}

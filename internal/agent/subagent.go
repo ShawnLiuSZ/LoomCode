@@ -107,6 +107,11 @@ func (m *SubAgentManager) spawn(name, role, parentID string, depth int, p provid
 		bus:      m.bus,
 	}
 
+	// 立即订阅消息总线，确保 agent 运行期间的消息不会丢失
+	if m.bus != nil {
+		sa.msgCh = m.bus.Subscribe(id)
+	}
+
 	m.agents[id] = sa
 	return sa
 }

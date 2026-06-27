@@ -3,8 +3,10 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -390,11 +392,15 @@ func TestIsDisconnectedErr(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{fmt.Errorf("server disconnected"), true},
-		{fmt.Errorf("write request: io: read/write on closed pipe"), true},
-		{fmt.Errorf("write request: write |1: broken pipe"), true},
+		{errServerDisconnected, true},
+		{fmt.Errorf("%w", errServerDisconnected), true},
+		{fmt.Errorf("write request: %w", io.ErrClosedPipe), true},
+		{io.ErrClosedPipe, true},
+		{fmt.Errorf("write request: %w", syscall.EPIPE), true},
+		{syscall.EPIPE, true},
 		{fmt.Errorf("request timeout (30s)"), false},
 		{fmt.Errorf("server error: something"), false},
+		{nil, false},
 	}
 
 	for _, tt := range tests {

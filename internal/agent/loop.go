@@ -219,6 +219,12 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 			roundEnd = 1
 		}
 
+		// 防止留下 orphan tool 消息：删除范围之后的连续 tool 结果也要一并带走，
+		// 否则 assistant tool_call 被删但 tool 结果留下，触发 LLM API 400。
+		for roundEnd+1 < len(a.messages)-keepRecent && a.messages[roundEnd+1].Role == "tool" {
+			roundEnd++
+		}
+
 		// 删除整个轮次 [roundStart, roundEnd]
 		deleted := a.messages[roundStart : roundEnd+1]
 		tokens -= estimateTokens(deleted)
@@ -578,16 +584,21 @@ func (a *Agent) buildToolDefs() []provider.ToolDef {
 	defs := make([]provider.ToolDef, 0, len(tools))
 	for _, t := range tools {
 		schema := t.Schema()
+		params := map[string]any{
+			"type":       schema.Type,
+			"properties": schema.Properties,
+		}
+		// 仅在非空时设置 required，避免 nil slice 序列化成 "required": null
+		// （DeepSeek/OpenAI API 要求该字段为 array，null 会触发 400）
+		if len(schema.Required) > 0 {
+			params["required"] = schema.Required
+		}
 		defs = append(defs, provider.ToolDef{
 			Type: "function",
 			Function: provider.FunctionDef{
 				Name:        t.Name(),
 				Description: t.Description(),
-				Parameters: map[string]any{
-					"type":       schema.Type,
-					"properties": schema.Properties,
-					"required":   schema.Required,
-				},
+				Parameters:  params,
 			},
 		})
 	}

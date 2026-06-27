@@ -236,7 +236,6 @@ func TestModelPickerShowsAllProvidersWithArrowMovement(t *testing.T) {
 	// 再测试跨 provider 切换 — 直接操作状态模拟
 	app2.showModelPicker = true
 	app2.modelIdx = 2           // 选中 mimo/mimo-v2.5
-	app2.modelList = app2.modelList // 保持列表不变
 	app2.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if app2.model != "mimo-v2.5" {
 		t.Errorf("expected model mimo-v2.5 after switching, got %s", app2.model)

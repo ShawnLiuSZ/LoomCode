@@ -3,13 +3,16 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -38,6 +41,9 @@ const (
 	rpcTimeout        = 30 * time.Second
 )
 
+// errServerDisconnected 表示服务器断连（用于 isDisconnectedErr 的 errors.Is 匹配，L13）
+var errServerDisconnected = errors.New("server disconnected")
+
 // Client MCP 客户端（stdio transport）
 type Client struct {
 	cmd    *exec.Cmd
@@ -60,6 +66,9 @@ type Client struct {
 	args        []string
 	maxRetries  int
 	reconnecting atomic.Bool
+
+	// 连接/关闭串行化锁，防止 Connect/Close/reconnect 并发竞态（L14）
+	connectMu sync.Mutex
 }
 
 // NewClient 创建 MCP 客户端
@@ -80,6 +89,8 @@ func (c *Client) SetMaxRetries(n int) {
 
 // Connect 连接并初始化
 func (c *Client) Connect() error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
 	return c.connect()
 }
 
@@ -100,6 +111,9 @@ func (c *Client) connect() error {
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	c.stdout = bufio.NewReader(stdout)
+
+	// 重建 done channel（cleanup 已关闭旧的）
+	c.done = make(chan struct{})
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start server: %w", err)
@@ -141,6 +155,9 @@ func (c *Client) connect() error {
 
 // reconnect 尝试重连 MCP 服务器
 func (c *Client) reconnect() error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
+
 	if !c.reconnecting.CompareAndSwap(false, true) {
 		return fmt.Errorf("reconnection already in progress")
 	}
@@ -167,12 +184,12 @@ func (c *Client) reconnect() error {
 		for id, ch := range c.pending {
 			pending[id] = ch
 		}
+		// 清空 pending：旧请求已无法通过新连接恢复
+		c.pending = make(map[int64]chan *Response)
 		c.pendingMu.Unlock()
 
-		// 对于重连后的 pending 请求，发送新的请求
+		// 对于重连后的 pending 请求，通知失败
 		for id, ch := range pending {
-			// 由于重连后协议状态已重置，pending 请求需要重新发送
-			// 但调用方不知道重连发生了，所以直接通知失败
 			select {
 			case ch <- &Response{
 				JSONRPC: jsonrpcVersion,
@@ -201,10 +218,11 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 	}
 	// 添加 jitter（±25%）
 	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
-	return delay - jitter/2 + jitter/2
+	return delay - jitter
 }
 
-// cleanup 清理当前连接资源
+// cleanup 清理当前连接资源，关闭 done channel 让 readLoop 和等待者退出。
+// 可安全重复调用（第二次为 no-op）。
 func (c *Client) cleanup() {
 	if c.stdin != nil {
 		c.stdin.Close()
@@ -214,6 +232,13 @@ func (c *Client) cleanup() {
 		c.cmd.Process.Kill()
 		c.cmd.Wait()
 		c.cmd = nil
+	}
+	// 通知所有等待 done 的 goroutine（readLoop、callRaw 中的 select）
+	// 用 recover 防止重复 close panic。
+	select {
+	case <-c.done:
+	default:
+		close(c.done)
 	}
 }
 
@@ -300,27 +325,46 @@ func (c *Client) callRaw(method string, params any) (*Response, error) {
 		return nil, fmt.Errorf("request timeout (%v)", rpcTimeout)
 	case <-c.done:
 		c.cancelPending(id)
-		return nil, fmt.Errorf("server disconnected")
+		return nil, fmt.Errorf("%w", errServerDisconnected)
 	}
 }
 
-// isDisconnectedErr 判断是否为断连错误
+// isDisconnectedErr 判断是否为断连错误（L13：用 errors.Is 替代字符串匹配）
 func isDisconnectedErr(err error) bool {
-	msg := err.Error()
-	return msg == "server disconnected" ||
-		msg == "write request: io: read/write on closed pipe" ||
-		msg == "write request: write |1: broken pipe"
+	if errors.Is(err, errServerDisconnected) {
+		return true
+	}
+	if errors.Is(err, io.ErrClosedPipe) {
+		return true
+	}
+	if errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	return false
 }
 
-// cancelPending 清理超时的 pending 请求
+// cancelPending 清理超时/失败的 pending 请求，并 drain buffered 响应（L16）
 func (c *Client) cancelPending(id int64) {
 	c.pendingMu.Lock()
-	defer c.pendingMu.Unlock()
-	delete(c.pending, id)
+	ch, ok := c.pending[id]
+	if ok {
+		delete(c.pending, id)
+	}
+	c.pendingMu.Unlock()
+
+	if ok {
+		// drain 可能已到达的 buffered 响应，防止响应滞留 channel
+		select {
+		case <-ch:
+		default:
+		}
+	}
 }
 
 // Close 关闭连接
 func (c *Client) Close() error {
+	c.connectMu.Lock()
+	defer c.connectMu.Unlock()
 	c.cleanup()
 	return nil
 }
@@ -366,7 +410,7 @@ func (c *Client) CallTool(name string, args map[string]any) (*CallToolResult, er
 	return &result, nil
 }
 
-// sendNotification 发送通知（无响应）
+// sendNotification 发送通知（无响应，L11：错误日志化而非静默吞掉）
 func (c *Client) sendNotification(method string, params any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -379,6 +423,7 @@ func (c *Client) sendNotification(method string, params any) {
 	if params != nil {
 		data, err := json.Marshal(params)
 		if err != nil {
+			log.Printf("mcp sendNotification %q: marshal params failed: %v", method, err)
 			return
 		}
 		notif.Params = data
@@ -386,8 +431,11 @@ func (c *Client) sendNotification(method string, params any) {
 
 	data, err := json.Marshal(notif)
 	if err != nil {
+		log.Printf("mcp sendNotification %q: marshal notif failed: %v", method, err)
 		return
 	}
 	data = append(data, '\n')
-	c.stdin.Write(data)
+	if _, err := c.stdin.Write(data); err != nil {
+		log.Printf("mcp sendNotification %q: write failed: %v", method, err)
+	}
 }

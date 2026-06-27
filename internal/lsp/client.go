@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -109,8 +110,10 @@ func (c *Client) readLoop() {
 			continue
 		}
 
-		// 跳过空行
-		c.stdout.ReadString('\n')
+		// 跳过 Header 与 body 之间的空行；若流断开或格式不符则退出（L15）
+		if _, err := c.stdout.ReadString('\n'); err != nil {
+			return
+		}
 
 		body := make([]byte, contentLength)
 		if _, err := io.ReadFull(c.stdout, body); err != nil {
@@ -221,17 +224,30 @@ func (c *Client) sendNotification(method string, params any) {
 	}
 
 	if params != nil {
-		data, _ := json.Marshal(params)
+		data, err := json.Marshal(params)
+		if err != nil {
+			log.Printf("lsp sendNotification %q: marshal params failed: %v", method, err)
+			return
+		}
 		notif.Params = data
 	}
 
-	data, _ := json.Marshal(notif)
+	data, err := json.Marshal(notif)
+	if err != nil {
+		log.Printf("lsp sendNotification %q: marshal notif failed: %v", method, err)
+		return
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(data))
-	c.stdin.Write([]byte(header))
-	c.stdin.Write(data)
+	if _, err := c.stdin.Write([]byte(header)); err != nil {
+		log.Printf("lsp sendNotification %q: write header failed: %v", method, err)
+		return
+	}
+	if _, err := c.stdin.Write(data); err != nil {
+		log.Printf("lsp sendNotification %q: write body failed: %v", method, err)
+	}
 }
 
 // Close 关闭客户端

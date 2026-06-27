@@ -2,7 +2,12 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,12 +63,74 @@ func (m *OAuthManager) GetToken(ctx context.Context) (*OAuthToken, error) {
 	// 检查是否过期（提前 60 秒刷新）
 	if time.Now().Add(60 * time.Second).After(m.token.ExpiresAt) {
 		if m.token.RefreshToken != "" {
-			// TODO: 实现 OAuth refresh token 流程
-			// 当前返回现有 token，由上层处理 401 错误
+			newToken, err := m.refreshToken(ctx, m.token.RefreshToken)
+			if err != nil {
+				return nil, fmt.Errorf("refresh token: %w", err)
+			}
+			m.token = newToken
+			if m.onRefresh != nil {
+				if err := m.onRefresh(newToken); err != nil {
+					return nil, fmt.Errorf("refresh callback: %w", err)
+				}
+			}
 		}
 	}
 
 	return m.token, nil
+}
+
+// refreshToken 使用 refresh_token 向 tokenURL 请求新 token，支持 OAuth 2.0 refresh 标准。
+func (m *OAuthManager) refreshToken(ctx context.Context, refreshToken string) (*OAuthToken, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {m.clientID},
+		"client_secret": {m.clientSecret},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", m.tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token refresh failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var result struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token,omitempty"`
+		ExpiresIn    int    `json:"expires_in"`
+		TokenType    string `json:"token_type"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode token response: %w", err)
+	}
+
+	if result.AccessToken == "" {
+		return nil, fmt.Errorf("token response missing access_token")
+	}
+
+	newRefresh := result.RefreshToken
+	if newRefresh == "" {
+		newRefresh = refreshToken // 服务端未返回新 refresh_token，保持原值
+	}
+
+	return &OAuthToken{
+		AccessToken:  result.AccessToken,
+		RefreshToken: newRefresh,
+		ExpiresAt:    time.Now().Add(time.Duration(result.ExpiresIn) * time.Second),
+		TokenType:    result.TokenType,
+	}, nil
 }
 
 // IsExpired 检查 token 是否过期

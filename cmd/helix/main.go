@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -134,7 +136,10 @@ func runCommand(args []string) {
 	configureToolPermissions(tools, perm)
 
 	// 连接配置的 MCP 插件（stdio/SSE）
-	connectPlugins(context.Background(), cfg.Plugins, tools)
+	pm := connectPlugins(context.Background(), cfg.Plugins, tools)
+	if pm != nil {
+		defer pm.DisconnectAll()
+	}
 
 	// 创建 Agent
 	ag := agent.New(p, tools)
@@ -408,7 +413,10 @@ func chatCommand() {
 	configureToolPermissions(tools, perm)
 
 	// 连接配置的 MCP 插件（stdio/SSE）
-	connectPlugins(context.Background(), cfg.Plugins, tools)
+	chatPM := connectPlugins(context.Background(), cfg.Plugins, tools)
+	if chatPM != nil {
+		defer chatPM.DisconnectAll()
+	}
 
 	// 初始化会话管理器
 	home, _ := os.UserHomeDir()
@@ -532,7 +540,6 @@ func ExportEnvToSubprocess() []string {
 			continue
 		}
 		key := e[:idx]
-		val := e[idx+1:]
 
 		if apiKeys[key] {
 			continue
@@ -540,9 +547,12 @@ func ExportEnvToSubprocess() []string {
 
 		for _, sk := range shellKeys {
 			if key == sk {
-				if val != "" {
-					filtered = append(filtered, e)
+				// 跳过空值以避免子进程被设空 PATH 等关键变量后找不到命令。
+				val := e[idx+1:]
+				if val == "" {
+					continue
 				}
+				filtered = append(filtered, e)
 				break
 			}
 		}
@@ -565,8 +575,11 @@ func dashboardCommand(args []string) {
 		addr = args[0]
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	server := dashboard.NewServer(addr)
-	if err := server.Start(); err != nil {
+	if err := server.Start(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "Dashboard 启动失败: %v\n", err)
 		os.Exit(1)
 	}

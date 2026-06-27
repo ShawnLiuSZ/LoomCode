@@ -56,8 +56,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
 }
 
-// Start 启动服务器（带超时配置）
-func (s *Server) Start() error {
+// Start 启动服务器（带超时配置）。ctx 取消时触发优雅关闭。
+func (s *Server) Start(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:         s.addr,
 		Handler:      s.mux,
@@ -69,13 +69,16 @@ func (s *Server) Start() error {
 	fmt.Printf("Dashboard running at http://%s\n", s.addr)
 	fmt.Println("注意：Dashboard 当前返回模拟数据（Mockup），仅用于 UI 原型展示。")
 
-	// 优雅关闭
+	// 优雅关闭：ctx 取消时 Shutdown，让 ListenAndServe 返回。
 	go func() {
-		<-context.Background().Done()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(ctx)
+		srv.Shutdown(shutdownCtx)
 	}()
 
-	return srv.ListenAndServe()
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }

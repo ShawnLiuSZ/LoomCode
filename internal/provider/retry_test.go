@@ -202,8 +202,9 @@ func TestAddJitter(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		delay := c.addJitter(base)
-		if delay < base/2 || delay > base {
-			t.Errorf("addJitter(%v) = %v, want between %v and %v", base, delay, base/2, base)
+		// ±25% 双边抖动：[75ms, 125ms]
+		if delay < base*3/4 || delay > base*5/4 {
+			t.Errorf("addJitter(%v) = %v, want between %v and %v", base, delay, base*3/4, base*5/4)
 		}
 	}
 
@@ -236,11 +237,13 @@ func TestRetryDelay_WithRetryAfter(t *testing.T) {
 		t.Errorf("retryDelay(1, nil) = %v, want >= 0", delay)
 	}
 
-	// 有 Retry-After 时使用指定值 + jitter
+	// 有 Retry-After 时使用指定值 + ±25% jitter（即 3.75s ~ 6.25s）
 	ra := 5 * time.Second
 	delay = c.retryDelay(1, &ra)
-	if delay < 2*time.Second+500*time.Millisecond || delay > 5*time.Second {
-		t.Errorf("retryDelay(1, 5s) = %v, want between 2.5s and 5s", delay)
+	lower := ra * 3 / 4
+	upper := ra * 5 / 4
+	if delay < lower || delay > upper {
+		t.Errorf("retryDelay(1, 5s) = %v, want between %v and %v", delay, lower, upper)
 	}
 }
 

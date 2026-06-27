@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -140,11 +141,13 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	cmd := exec.CommandContext(ctx, "grep", "-rn", pattern, path)
 	cmd.Env = EnvForSubprocess()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 独立进程组，截断时杀负 PID 不会误杀 helix
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("create pipe: %w", err)
 	}
-	cmd.Stderr = cmd.Stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start grep: %w", err)
@@ -206,11 +209,13 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	cmd := exec.CommandContext(ctx, "find", path, "-name", pattern, "-type", "f")
 	cmd.Env = EnvForSubprocess()
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 独立进程组，截断时杀负 PID 不会误杀 helix
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("create pipe: %w", err)
 	}
-	cmd.Stderr = cmd.Stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start find: %w", err)

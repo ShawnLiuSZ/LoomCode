@@ -147,8 +147,13 @@ func (c *RetryableHTTPClient) addJitter(delay time.Duration) time.Duration {
 	if delay <= 0 {
 		return delay
 	}
-	jitter := time.Duration(rand.Int63n(int64(delay) / 2))
-	return delay - jitter
+	// [-25%, +25%] 双边抖动
+	jitterRange := int64(delay) / 2
+	if jitterRange <= 0 {
+		return delay
+	}
+	offset := time.Duration(rand.Int63n(jitterRange)) - time.Duration(jitterRange/2)
+	return delay + offset
 }
 
 // parseRetryAfter 解析 Retry-After 头

@@ -219,7 +219,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 	newText, _ := args["new_text"].(string)
 
 	if oldText == "" {
-		return nil, fmt.Errorf("path and old_text are required")
+		return nil, fmt.Errorf("old_text is required")
 	}
 	abs, err := resolveWithinRoot(t.root, path)
 	if err != nil {
