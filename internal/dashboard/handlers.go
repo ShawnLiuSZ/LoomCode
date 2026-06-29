@@ -17,7 +17,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // handleSessions 处理会话列表（Mockup）
@@ -28,7 +28,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sessions)
+	_ = json.NewEncoder(w).Encode(sessions)
 }
 
 // handleCost 处理成本统计（Mockup）
@@ -41,7 +41,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cost)
+	_ = json.NewEncoder(w).Encode(cost)
 }
 
 // handleStatus 处理 Provider 状态（Mockup）
@@ -54,5 +54,5 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	_ = json.NewEncoder(w).Encode(status)
 }

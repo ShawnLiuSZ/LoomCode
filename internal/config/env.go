@@ -52,7 +52,9 @@ func loadEnvFile(path string) error {
 		return err
 	}
 	for key, val := range envMap {
-		os.Setenv(key, val)
+		if err := os.Setenv(key, val); err != nil {
+			log.Printf("Warning: failed to set env %s: %v", key, err)
+		}
 	}
 	return nil
 }

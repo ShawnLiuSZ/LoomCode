@@ -6,12 +6,19 @@ import (
 	"testing"
 )
 
+func writeEnvFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
 func TestLoadEnvFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	// 创建 .env 文件
 	envContent := "TEST_KEY_1=value1\nTEST_KEY_2=value2\n"
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(envContent), 0644)
+	writeEnvFile(t, dir, ".env", envContent)
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -30,11 +37,13 @@ func TestLoadEnvFiles_LocalOverride(t *testing.T) {
 	dir := t.TempDir()
 
 	// .env 设置值
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("TEST_OVERRIDE=original\n"), 0644)
+	writeEnvFile(t, dir, ".env", "TEST_OVERRIDE=original\n")
 	// .env.local 覆盖
-	os.WriteFile(filepath.Join(dir, ".env.local"), []byte("TEST_OVERRIDE=overridden\n"), 0644)
+	writeEnvFile(t, dir, ".env.local", "TEST_OVERRIDE=overridden\n")
 
-	LoadEnvFiles(dir)
+	if err := LoadEnvFiles(dir); err != nil {
+		t.Fatalf("LoadEnvFiles error: %v", err)
+	}
 
 	if os.Getenv("TEST_OVERRIDE") != "overridden" {
 		t.Errorf("TEST_OVERRIDE = %q, want overridden", os.Getenv("TEST_OVERRIDE"))
@@ -53,7 +62,7 @@ func TestLoadEnvFiles_NoFiles(t *testing.T) {
 func TestLoadEnvFiles_OnlyDotEnv(t *testing.T) {
 	dir := t.TempDir()
 	// 只有 .env，没有 .env.local
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("ONLY_DOTENV=present\n"), 0644)
+	writeEnvFile(t, dir, ".env", "ONLY_DOTENV=present\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -67,7 +76,7 @@ func TestLoadEnvFiles_OnlyDotEnv(t *testing.T) {
 func TestLoadEnvFiles_OnlyDotEnvLocal(t *testing.T) {
 	dir := t.TempDir()
 	// 只有 .env.local，没有 .env
-	os.WriteFile(filepath.Join(dir, ".env.local"), []byte("ONLY_LOCAL=local_only\n"), 0644)
+	writeEnvFile(t, dir, ".env.local", "ONLY_LOCAL=local_only\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -81,7 +90,7 @@ func TestLoadEnvFiles_OnlyDotEnvLocal(t *testing.T) {
 func TestLoadEnvFiles_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	// 空 .env 文件
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(""), 0644)
+	writeEnvFile(t, dir, ".env", "")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -99,7 +108,7 @@ KEY_A=value_a
 KEY_B=value_b
 
 `
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(content), 0644)
+	writeEnvFile(t, dir, ".env", content)
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -116,7 +125,7 @@ KEY_B=value_b
 func TestLoadEnvFiles_ValueWithSpaces(t *testing.T) {
 	dir := t.TempDir()
 	// 包含空格的变量值
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("GREETING=hello world\n"), 0644)
+	writeEnvFile(t, dir, ".env", "GREETING=hello world\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -130,7 +139,7 @@ func TestLoadEnvFiles_ValueWithSpaces(t *testing.T) {
 func TestLoadEnvFiles_ValueWithEquals(t *testing.T) {
 	dir := t.TempDir()
 	// 包含等号的值
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("URL=https://api.example.com?v=1\n"), 0644)
+	writeEnvFile(t, dir, ".env", "URL=https://api.example.com?v=1\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -144,7 +153,7 @@ func TestLoadEnvFiles_ValueWithEquals(t *testing.T) {
 func TestLoadEnvFiles_MultipleDots(t *testing.T) {
 	dir := t.TempDir()
 	// 键名中包含多个点号
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("MY.APP.KEY=secret123\n"), 0644)
+	writeEnvFile(t, dir, ".env", "MY.APP.KEY=secret123\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -159,9 +168,11 @@ func TestLoadEnvFiles_ExistingEnvNotOverriddenByDotEnv(t *testing.T) {
 	dir := t.TempDir()
 	// 系统环境变量已存在，.env 的值会覆盖（因为用 os.Setenv）
 	t.Setenv("EXISTING_KEY", "system_value")
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("EXISTING_KEY=env_value\n"), 0644)
+	writeEnvFile(t, dir, ".env", "EXISTING_KEY=env_value\n")
 
-	LoadEnvFiles(dir)
+	if err := LoadEnvFiles(dir); err != nil {
+		t.Fatalf("LoadEnvFiles error: %v", err)
+	}
 
 	// 由于 loadEnvFile 使用 os.Setenv，.env 的值应覆盖系统值
 	if os.Getenv("EXISTING_KEY") != "env_value" {
@@ -174,7 +185,7 @@ func TestLoadEnvFiles_NoExistingHomeDir(t *testing.T) {
 	t.Setenv("HOME", "/nonexistent/home/dir")
 
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("PROJECT_KEY=project\n"), 0644)
+	writeEnvFile(t, dir, ".env", "PROJECT_KEY=project\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -188,9 +199,9 @@ func TestLoadEnvFiles_NoExistingHomeDir(t *testing.T) {
 func TestLoadEnvFiles_QuotedValues(t *testing.T) {
 	dir := t.TempDir()
 	// 引号包围的值
-	os.WriteFile(filepath.Join(dir, ".env"), []byte(`QUOTED="value with spaces"
+	writeEnvFile(t, dir, ".env", `QUOTED="value with spaces"
 SINGLE_QUOTED='single quoted'
-`), 0644)
+`)
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -208,7 +219,7 @@ SINGLE_QUOTED='single quoted'
 func TestLoadEnvFiles_ExportPrefix(t *testing.T) {
 	dir := t.TempDir()
 	// export 前缀
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("export EXPORTED_KEY=exported_value\n"), 0644)
+	writeEnvFile(t, dir, ".env", "export EXPORTED_KEY=exported_value\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {
@@ -222,7 +233,7 @@ func TestLoadEnvFiles_ExportPrefix(t *testing.T) {
 func TestLoadEnvFiles_DuplicateKeys(t *testing.T) {
 	dir := t.TempDir()
 	// 同一文件中的重复键，后出现的应覆盖
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("DUP_KEY=first\nDUP_KEY=second\n"), 0644)
+	writeEnvFile(t, dir, ".env", "DUP_KEY=first\nDUP_KEY=second\n")
 
 	err := LoadEnvFiles(dir)
 	if err != nil {

@@ -72,7 +72,9 @@ api_key_env = "MISSING_KEY"
   [[providers.models]]
   id = "m1"
 `
-	os.WriteFile(path, []byte(content), 0644)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	// 不设置环境变量，应该报错
 	_, err := Load(path)
@@ -273,7 +275,9 @@ base_url = "https://api.test.com"
   [[providers.models]]
   id = "m1"
 `
-	os.WriteFile(path, []byte(content), 0644)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 
 	_, err := Load(path)
 	if err == nil {
