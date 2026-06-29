@@ -447,9 +447,16 @@ func chatCommand() {
 			} else {
 				fmt.Fprintf(os.Stderr, "Warning: session %q not found, starting new session\n", *flagSession)
 			}
+		} else {
+			// 默认启动：从最近会话恢复上次选择的模型/provider（不恢复消息历史）
+			if recent := sessionMgr.MostRecent(); recent != nil {
+				app.RestoreModelFromSession(recent)
+			}
 		}
 	}
 
+	// 不启用 WithMouseCellMotion：它会接管终端的文本选择，导致无法用鼠标复制内容。
+	// 滚动改用键盘 PageUp/PageDown（已内置支持）。
 	program := tea.NewProgram(app, tea.WithAltScreen())
 	app.SetProgram(program)
 	if _, err := program.Run(); err != nil {

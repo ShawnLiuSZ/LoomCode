@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,7 +22,7 @@ type MemoryProvider interface {
 }
 
 // keepRecentMessages 压缩时保留的最近消息条数（在轮次边界上对齐）
-const keepRecentMessages = 4
+const keepRecentMessages = 8
 
 // maxDirEntries 系统提示中目录清单的最大条目数
 const maxDirEntries = 40
@@ -31,7 +33,7 @@ func (a *Agent) buildEnvContext() string {
 	var sb strings.Builder
 	sb.WriteString("\n## Environment\n")
 	sb.WriteString(fmt.Sprintf("- OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH))
-	sb.WriteString(fmt.Sprintf("- Date: %s\n", time.Now().Format("2006-01-02")))
+	sb.WriteString(fmt.Sprintf("- Date: %s\n", time.Now().Format("2006-01")))
 
 	if a.workDir == "" {
 		return sb.String()
@@ -93,6 +95,56 @@ func listDir(root string) []string {
 	return out
 }
 
+// archiveDroppedMessages 把压缩时被丢弃的消息段归档到
+// ~/.helix/archive/<session_id>/<timestamp>.jsonl，便于事后追溯。
+// 任何失败都只记录日志告警，绝不中断压缩流程。
+// Agent 暂未持久化 session_id，这里用时间戳生成临时唯一标识，避免改动结构体。
+func (a *Agent) archiveDroppedMessages(start, cut int) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("archiveDroppedMessages panic: %v", r)
+		}
+	}()
+	if cut <= start {
+		return
+	}
+	dropped := a.messages[start:cut]
+	if len(dropped) == 0 {
+		return
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("archive: cannot resolve home dir: %v", err)
+		return
+	}
+	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
+	archiveDir := filepath.Join(home, ".helix", "archive", sessionID)
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		log.Printf("archive: mkdir %s failed: %v", archiveDir, err)
+		return
+	}
+	fname := filepath.Join(archiveDir, time.Now().Format("20060102-150405")+".jsonl")
+	data, err := json.Marshal(dropped)
+	if err != nil {
+		log.Printf("archive: marshal failed: %v", err)
+		return
+	}
+	if err := os.WriteFile(fname, data, 0o644); err != nil {
+		log.Printf("archive: write %s failed: %v", fname, err)
+		return
+	}
+}
+
+// leadingSystemCount 返回前导 system 消息数量（静态 system + 动态 system）。
+// 压缩与截断都跳过这些消息，以保持 [system, ...] prefix 稳定，最大化 prefix cache 命中率。
+func leadingSystemCount(msgs []provider.Message) int {
+	n := 0
+	for n < len(msgs) && msgs[n].Role == "system" {
+		n++
+	}
+	return n
+}
+
 // compactMessages 缓存友好的上下文压缩：当估算 token 超过窗口阈值时，
 // 把"较旧的完整轮次"摘要为单条固定的 summary 块插在 system 之后，
 // 保持 [system, summary] 前缀稳定 —— 从而最大化 provider 的 prefix cache 命中率。
@@ -108,11 +160,13 @@ func (a *Agent) compactMessages(ctx context.Context, ctxWindow int) {
 	if estimateTokens(a.messages) <= maxInput {
 		return
 	}
-	if len(a.messages) <= keepRecentMessages+2 {
+
+	// 跳过所有前导 system 消息（静态 system + 动态 system），保持 prefix 稳定。
+	start := leadingSystemCount(a.messages)
+	if len(a.messages) <= keepRecentMessages+start {
 		return // 内容太少，无可压缩
 	}
 
-	const start = 1 // 跳过真实 system 提示（index 0）
 	cut := len(a.messages) - keepRecentMessages
 	if cut <= start {
 		return
@@ -136,6 +190,9 @@ func (a *Agent) compactMessages(ctx context.Context, ctxWindow int) {
 		a.costAccumulated += c.TotalCost
 		a.onCost(c.TotalCost)
 	}
+
+	// 在丢弃旧消息前归档，便于事后追溯；失败仅告警，不影响压缩流程。
+	a.archiveDroppedMessages(start, cut)
 
 	rebuilt := make([]provider.Message, 0, len(a.messages)-(cut-start)+1)
 	rebuilt = append(rebuilt, a.messages[0]) // system 提示保持在 index 0

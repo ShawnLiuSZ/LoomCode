@@ -73,6 +73,11 @@ func bigMsgs() []provider.Message {
 		{Role: "tool", ToolCallID: "c2", Content: strings.Repeat("t", 300)},
 		{Role: "user", Content: "more"},
 		{Role: "assistant", Content: "answer"},
+		{Role: "user", Content: "again"},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c3"}}},
+		{Role: "tool", ToolCallID: "c3", Content: strings.Repeat("t", 300)},
+		{Role: "user", Content: "more2"},
+		{Role: "assistant", Content: "answer2"},
 	}
 }
 
@@ -104,7 +109,7 @@ func TestCompactMessages_SummarizesOldRounds(t *testing.T) {
 	}
 	// Recent tail preserved.
 	last := a.messages[len(a.messages)-1]
-	if last.Role != "assistant" || last.Content != "answer" {
+	if last.Role != "assistant" || last.Content != "answer2" {
 		t.Errorf("recent tail not preserved, last = %+v", last)
 	}
 	if len(a.messages) >= len(bigMsgs()) {
@@ -118,7 +123,7 @@ func TestCompactMessages_CutAdjustsPastToolMessage(t *testing.T) {
 	})
 	a := New(p, tool.NewRegistry())
 	a.SetModel("m")
-	// len=7, keepRecent=4 -> naive cut=3 lands on a tool message; must advance to 4 (user).
+	// len=11, keepRecent=8 -> naive cut=3 lands on a tool message; must advance to 4 (user).
 	a.messages = []provider.Message{
 		{Role: "system", Content: strings.Repeat("s", 30)},
 		{Role: "user", Content: strings.Repeat("u", 300)},
@@ -127,11 +132,15 @@ func TestCompactMessages_CutAdjustsPastToolMessage(t *testing.T) {
 		{Role: "user", Content: "U4"},
 		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c2"}}},
 		{Role: "tool", ToolCallID: "c2", Content: "r2"},
+		{Role: "user", Content: "U7"},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c3"}}},
+		{Role: "tool", ToolCallID: "c3", Content: "r3"},
+		{Role: "user", Content: "U10"},
 	}
 
 	a.compactMessages(context.Background(), 100)
 
-	// [system, summary, user(U4), assistant(c2), tool(c2)]
+	// [system, summary, user(U4), assistant(c2), tool(c2), user(U7), assistant(c3), tool(c3), user(U10)]
 	if a.messages[2].Role != "user" || a.messages[2].Content != "U4" {
 		t.Errorf("kept region should begin at the user message U4, got %+v", a.messages[2])
 	}

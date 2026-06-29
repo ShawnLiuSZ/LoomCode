@@ -2,6 +2,7 @@ package tool
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -37,12 +38,21 @@ func (r *Registry) Get(name string) (Tool, bool) {
 }
 
 // List 列出所有工具
+// 按工具名升序返回，保证输出顺序稳定（Go map 遍历顺序随机，
+// 排序后可让 buildToolDefs 产出的 tools 数组保持一致，从而命中 LLM prefix cache）。
 func (r *Registry) List() []Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	tools := make([]Tool, 0, len(r.tools))
-	for _, t := range r.tools {
-		tools = append(tools, t)
+
+	keys := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+
+	tools := make([]Tool, 0, len(keys))
+	for _, name := range keys {
+		tools = append(tools, r.tools[name])
 	}
 	return tools
 }
@@ -59,4 +69,7 @@ func (r *Registry) RegisterDefaults() {
 	r.Register(&GitDiffTool{})
 	r.Register(&GitLogTool{})
 	r.Register(&GitCommitTool{})
+	// recall_memory 默认注册为占位工具（返回 "No memory configured."）；
+	// 真正的记忆来源由 agent.SetMemory 通过 SetMemoryProvider 注入。
+	r.Register(&RecallMemoryTool{})
 }

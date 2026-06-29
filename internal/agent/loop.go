@@ -28,6 +28,7 @@ type Agent struct {
 	history   []provider.Message // 跨轮次对话历史（不含 system，每轮重建）
 	onCost    func(float64)      // 成本回调
 	effort    *EffortManager     // 思考强度管理器
+	eventLog  *EventLog          // 事件日志（缓存命中统计等）
 
 	costBudget       float64
 	onBudgetExceeded func()
@@ -44,8 +45,15 @@ func New(p provider.Provider, registry *tool.Registry) *Agent {
 		goal:     NewGoalStopCondition(p),
 		maxSteps: effort.GetMaxSteps(),
 		effort:   effort,
+		eventLog: NewEventLog(1000),
 	}
 }
+
+// SetEventLog 注入共享事件日志（用于 MultiAgent 聚合多轮缓存统计）。
+func (a *Agent) SetEventLog(l *EventLog) { a.eventLog = l }
+
+// EventLog 返回 Agent 的事件日志。
+func (a *Agent) EventLog() *EventLog { return a.eventLog }
 
 // SetMaxSteps 设置最大推理步数
 func (a *Agent) SetMaxSteps(n int) { a.maxSteps = n }
@@ -100,8 +108,20 @@ func (a *Agent) SetSkillsManager(mgr *skills.Manager) {
 	_ = a.tools.Register(skillTool) // 重复注册时忽略错误（已存在即可）
 }
 
-// SetMemory 设置记忆提供者，其内容会注入到系统提示，实现跨会话的项目知识/偏好记忆
-func (a *Agent) SetMemory(m MemoryProvider) { a.memory = m }
+// SetMemory 设置记忆提供者，并把其内容检索函数注入到 recall_memory 工具，
+// 让模型按需拉取记忆正文（而非一次性塞进系统提示），实现跨会话的项目知识/偏好记忆。
+func (a *Agent) SetMemory(m MemoryProvider) {
+	a.memory = m
+	if m == nil || a.tools == nil {
+		return
+	}
+	if t, ok := a.tools.Get("recall_memory"); ok {
+		if rt, ok := t.(*tool.RecallMemoryTool); ok {
+			// 用闭包而非方法值，保证每次调用都读取最新记忆内容。
+			rt.SetMemoryProvider(func() string { return m.BuildContextPrompt() })
+		}
+	}
+}
 
 // SetHistory 设置跨轮次对话历史（不含 system 消息）。下一次 Run/RunStream
 // 会以 [system] + history + [新 user] 作为起点，实现多轮上下文连续。
@@ -109,20 +129,27 @@ func (a *Agent) SetHistory(msgs []provider.Message) { a.history = msgs }
 
 // ConversationMessages 返回本轮结束后的完整对话（不含 system 提示），
 // 供上层（MultiAgent）作为下一轮的历史延续。
+// 跳过所有前导 system 消息（静态 system + 动态 system），只返回 user/assistant/tool 对话。
 func (a *Agent) ConversationMessages() []provider.Message {
-	if len(a.messages) <= 1 {
+	start := leadingSystemCount(a.messages)
+	if start >= len(a.messages) {
 		return nil
 	}
-	out := make([]provider.Message, len(a.messages)-1)
-	copy(out, a.messages[1:])
+	out := make([]provider.Message, len(a.messages)-start)
+	copy(out, a.messages[start:])
 	return out
 }
 
-// initMessages 以 [system] + history + [user:task] 初始化本轮消息列表。
-// 系统提示每轮重建（含动态环境/记忆/skills），历史保留以维持多轮连续。
+// initMessages 以 [static-system, dynamic-system] + history + [user:task] 初始化本轮消息列表。
+// 静态 system 提示（身份+原则）位于 index 0，跨轮次字节级一致，配合 tools 定义
+// 构成可被 provider prefix cache 命中的稳定前缀；动态上下文（环境/记忆/skills）
+// 作为第二条 system 消息，位于 history 之前。历史保留以维持多轮连续。
 func (a *Agent) initMessages(task string) {
-	a.messages = make([]provider.Message, 0, len(a.history)+2)
-	a.messages = append(a.messages, provider.Message{Role: "system", Content: a.buildSystemPrompt()})
+	a.messages = make([]provider.Message, 0, len(a.history)+3)
+	a.messages = append(a.messages, provider.Message{Role: "system", Content: a.buildStaticSystemPrompt()})
+	if dyn := a.buildDynamicContext(); dyn != "" {
+		a.messages = append(a.messages, provider.Message{Role: "system", Content: dyn})
+	}
 	a.messages = append(a.messages, a.history...)
 	a.messages = append(a.messages, provider.Message{Role: "user", Content: task})
 }
@@ -188,15 +215,17 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 		return
 	}
 
-	// 保留 system prompt (index 0) 和最近 4 条消息
+	// 保留所有前导 system 消息（静态 system + 动态 system）和最近 4 条消息。
+	// 保留前导 system 消息使 [system, ...] prefix 稳定，最大化 prefix cache 命中率。
+	start := leadingSystemCount(a.messages)
 	const keepRecent = 4
 
-	for len(a.messages) > keepRecent+1 && tokens > maxInput {
+	for len(a.messages) > keepRecent+start && tokens > maxInput {
 		// 找到最旧的完整轮次：从后往前找第一个 assistant(tool_calls) + 其 tool results
 		roundStart := -1
 		roundEnd := -1
 
-		for i := len(a.messages) - keepRecent - 1; i >= 1; i-- {
+		for i := len(a.messages) - keepRecent - 1; i >= start; i-- {
 			msg := a.messages[i]
 			if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 				// 找到 assistant tool_calls，向后找所有对应的 tool 结果
@@ -215,8 +244,8 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 
 		// 如果没找到完整轮次，删除最旧的非 system 消息
 		if roundStart == -1 {
-			roundStart = 1
-			roundEnd = 1
+			roundStart = start
+			roundEnd = start
 		}
 
 		// 防止留下 orphan tool 消息：删除范围之后的连续 tool 结果也要一并带走，
@@ -297,12 +326,21 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 				}
 			}
 
-			if lastUsage != nil && a.onCost != nil {
-				cost := a.provider.Cost(a.model, *lastUsage)
-				a.onCost(cost.TotalCost)
-				a.costAccumulated += cost.TotalCost
-				if a.costBudget > 0 && a.costAccumulated >= a.costBudget && a.onBudgetExceeded != nil {
-					a.onBudgetExceeded()
+			if lastUsage != nil {
+				// 记录 prefix cache 命中统计（独立于成本回调，无 onCost 时也生效）
+				if a.eventLog != nil {
+					a.eventLog.RecordInputTokens(int64(lastUsage.PromptTokens))
+					if lastUsage.CachedInputTokens > 0 {
+						a.eventLog.LogCacheHit(int64(lastUsage.CachedInputTokens))
+					}
+				}
+				if a.onCost != nil {
+					cost := a.provider.Cost(a.model, *lastUsage)
+					a.onCost(cost.TotalCost)
+					a.costAccumulated += cost.TotalCost
+					if a.costBudget > 0 && a.costAccumulated >= a.costBudget && a.onBudgetExceeded != nil {
+						a.onBudgetExceeded()
+					}
 				}
 			}
 
@@ -354,7 +392,8 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			}
 		}
 
-		errCh <- fmt.Errorf("max steps (%d) reached", a.maxSteps)
+		// 达到步数上限：发提示后正常结束，保留已生成内容（而非发 error 让 UI 丢弃内容）
+		textCh <- fmt.Sprintf("\n\n[已达到最大步数限制 (%d)。可使用 /goal 设置停止条件，或 /steps 增大步数限制后继续。]", a.maxSteps)
 	}()
 
 	return textCh, errCh
@@ -423,6 +462,13 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			return "", fmt.Errorf("chat error (step %d): %w", step, err)
 		}
 
+		// 记录 prefix cache 命中统计（独立于成本回调，无 onCost 时也生效）
+		if a.eventLog != nil {
+			a.eventLog.RecordInputTokens(int64(resp.Usage.PromptTokens))
+			if resp.Usage.CachedInputTokens > 0 {
+				a.eventLog.LogCacheHit(int64(resp.Usage.CachedInputTokens))
+			}
+		}
 		if a.onCost != nil {
 			cost := a.provider.Cost(a.model, resp.Usage)
 			a.onCost(cost.TotalCost)
@@ -514,8 +560,9 @@ func (a *Agent) executeTools(ctx context.Context, toolCalls []provider.ToolCall)
 	return a.executor.Execute(ctx, calls)
 }
 
-// buildSystemPrompt 构建系统提示词
-func (a *Agent) buildSystemPrompt() string {
+// buildStaticSystemPrompt 返回永不变化的静态系统提示（身份 + 工作原则）。
+// 这部分在多次 Run 间字节级一致，配合 tools 定义可被 provider prefix cache 命中。
+func (a *Agent) buildStaticSystemPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("You are Helix, an AI coding assistant operating in a terminal.\n")
 	sb.WriteString("You have access to tools for reading/writing files, editing code, executing commands, and searching code.\n")
@@ -526,16 +573,20 @@ func (a *Agent) buildSystemPrompt() string {
 	sb.WriteString("- After modifying code, verify it (read it back, run the relevant build/test) before claiming success.\n")
 	sb.WriteString("- Be concise. Report what you did and what you found; omit information that does not change the outcome.\n")
 	sb.WriteString("- When the task is complete, give a final answer without further tool calls.\n")
+	sb.WriteString("\n## On-demand context\n")
+	sb.WriteString("- Call `recall_memory` to retrieve project knowledge and long-term memory when you need context about the project or prior decisions.\n")
+	sb.WriteString("- Call the `skill` tool with no arguments to list available skills; pass a skill name to load its full instructions.\n")
+	return sb.String()
+}
 
+// buildDynamicContext 返回动态上下文（环境/项目指令）。
+// 这部分随工作目录、日期等变化，作为独立的 system 消息追加在静态
+// 系统提示之后，使真实 system prompt（index 0）+ tools 定义的 prefix 保持稳定。
+// 长期记忆与 Skills 列表已移至按需工具（recall_memory / skill），
+// 不再注入此处，以保持 prefix 稳定并缩短动态段。
+func (a *Agent) buildDynamicContext() string {
+	var sb strings.Builder
 	sb.WriteString(a.buildEnvContext())
-
-	if a.memory != nil {
-		if mem := strings.TrimSpace(a.memory.BuildContextPrompt()); mem != "" {
-			sb.WriteString("\n## Long-term Memory\n")
-			sb.WriteString(mem)
-			sb.WriteString("\n")
-		}
-	}
 
 	if a.workDir != "" {
 		if instructions := loadProjectInstructions(a.workDir); instructions != "" {
@@ -545,17 +596,14 @@ func (a *Agent) buildSystemPrompt() string {
 		}
 	}
 
-	if a.skillsMgr != nil {
-		skillList := a.skillsMgr.List()
-		if len(skillList) > 0 {
-			sb.WriteString("\n## Available Skills (call the `skill` tool with a name to load its full instructions)\n")
-			for _, s := range skillList {
-				sb.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
-			}
-		}
-	}
-
 	return sb.String()
+}
+
+// buildSystemPrompt 构建完整系统提示词（静态 + 动态）。
+// 保留用于测试与向后兼容；生产路径 initMessages 使用拆分形式（两条 system 消息）
+// 以最大化 provider prefix cache 命中率。
+func (a *Agent) buildSystemPrompt() string {
+	return a.buildStaticSystemPrompt() + a.buildDynamicContext()
 }
 
 var projectInstructionFiles = []string{"HELIX.md", "HELIX.local.md", ".helix/instructions.md"}

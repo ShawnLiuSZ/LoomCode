@@ -98,6 +98,9 @@ type App struct {
 	tokensUsed    int
 	tokensWindow  int
 
+	// Cache 命中率（来自 agent EventLog，nil 时不显示）
+	eventLog *agent.EventLog
+
 	// Agent 活动状态
 	lastStep    int
 	lastTool    string
@@ -236,6 +239,9 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 		},
 	}
 
+	// 接通 EventLog，用于状态栏显示 prefix cache 命中率
+	app.eventLog = ag.EventLog()
+
 	ag.SetCostCallback(func(cost float64) {
 		app.costLast = cost
 		app.costSession += cost
@@ -257,6 +263,10 @@ func (a *App) SetModel(m string)                       { a.model = m; a.agent.Se
 func (a *App) SetWorkDir(d string)                     { a.agent.SetWorkDir(d) }
 func (a *App) SetProgram(p *tea.Program)               { a.program = p }
 func (a *App) SetHooks(hm *tool.HookManager)            { a.agent.SetHooks(hm) }
+
+// SetEventLog 注入 agent EventLog，用于在状态栏显示 prefix cache 命中率。
+// 传入 nil 则不显示 cache 字段。
+func (a *App) SetEventLog(l *agent.EventLog) { a.eventLog = l }
 
 func (a *App) AddApprovalGuard(perm *control.Permission) {
 	a.agent.AddGuard(func(tc tool.Call) error {
@@ -302,6 +312,32 @@ func (a *App) SetProviders(providers []provider.Provider) {
 	}
 }
 
+// persistModelChange 持久化模型/provider 切换到活动会话，让下次启动能恢复。
+// activeSess 为 nil（用户还没输入过消息）时跳过，下次启动走默认模型。
+func (a *App) persistModelChange() {
+	if a.sessionMgr == nil || a.activeSess == nil {
+		return
+	}
+	_ = a.sessionMgr.UpdateModelProvider(a.model, a.provider.Name())
+}
+
+// RestoreModelFromSession 从会话恢复模型/provider 选择（不恢复消息历史）。
+// 用于默认启动时记住上次选择的模型。仅当会话的 provider 仍已注册时生效。
+func (a *App) RestoreModelFromSession(sess *session.Session) {
+	if sess == nil || sess.Provider == "" || sess.Model == "" {
+		return
+	}
+	for _, p := range a.allProviders {
+		if p.Name() == sess.Provider {
+			a.provider = p
+			a.agent.SetProvider(p)
+			a.model = sess.Model
+			a.agent.SetModel(sess.Model)
+			return
+		}
+	}
+}
+
 // saveSession 将新消息保存到活动会话
 func (a *App) saveSession() {
 	if a.sessionMgr == nil {
@@ -339,6 +375,20 @@ func (a *App) RestoreSession(sess *session.Session) {
 	a.messages = []chatMessage{
 		{Role: "system", Content: fmt.Sprintf("已恢复会话: %s (%d 条消息)", sess.Name, len(sess.Messages)), Timestamp: time.Now()},
 	}
+
+	// 恢复会话保存的 model/provider（若仍存在于已注册 provider 列表中）
+	if sess.Provider != "" && sess.Model != "" {
+		for _, p := range a.allProviders {
+			if p.Name() == sess.Provider {
+				a.provider = p
+				a.agent.SetProvider(p)
+				a.model = sess.Model
+				a.agent.SetModel(sess.Model)
+				break
+			}
+		}
+	}
+
 	var history []provider.Message
 	for _, msg := range sess.Messages {
 		a.messages = append(a.messages, chatMessage{
@@ -482,10 +532,12 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down":
 			a.modelIdx = (a.modelIdx + 1) % len(a.modelList)
 			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.GotoBottom()
 			return a, nil
 		case "up":
 			a.modelIdx = (a.modelIdx - 1 + len(a.modelList)) % len(a.modelList)
 			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.GotoBottom()
 			return a, nil
 		case "enter":
 			if a.modelIdx >= 0 && a.modelIdx < len(a.modelList) {
@@ -495,12 +547,14 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					for _, p := range a.allProviders {
 						if p.Name() == entry.ProviderName {
 							a.provider = p
+							a.agent.SetProvider(p) // 同步切换 agent 内部 provider
 							break
 						}
 					}
 				}
 				a.model = entry.ModelID
 				a.agent.SetModel(a.model)
+				a.persistModelChange() // 持久化切换，下次启动恢复
 				a.messages = append(a.messages, chatMessage{
 					Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", entry.ProviderName, entry.ModelID),
 				})
@@ -512,6 +566,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			a.showModelPicker = false
 			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.GotoBottom()
 			return a, nil
 		}
 	}
@@ -527,9 +582,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "enter":
 			if len(a.suggestions) > 0 {
-				a.textArea.SetValue(a.suggestions[a.suggestionIdx] + " ")
+				// 选中建议后直接执行（无需再按一次回车）
+				a.textArea.Reset()
 				a.showSuggestions = false
 				a.suggestions = nil
+				return a.handleCommand(a.suggestions[a.suggestionIdx])
 			}
 			return a, nil
 		case "esc":
@@ -961,7 +1018,10 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 			if models, ok := a.allProviderModels[p.Name()]; ok {
 				for _, m := range models {
 					if m.ID == newModel {
-						a.provider = p
+						if a.provider.Name() != p.Name() {
+							a.provider = p
+							a.agent.SetProvider(p) // 同步切换 agent 内部 provider
+						}
 						break
 					}
 				}
@@ -971,6 +1031,7 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 
 	a.model = newModel
 	a.agent.SetModel(newModel)
+	a.persistModelChange() // 持久化切换，下次启动恢复
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", a.provider.Name(), newModel)})
 	a.viewport.SetContent(a.renderMessages(a.height-8, ""))
 	a.viewport.GotoBottom()
@@ -1383,7 +1444,15 @@ func (a *App) renderStatusBar() string {
 	costDisplay := a.renderCost()
 	contextDisplay := a.renderContextUsage()
 	left := fmt.Sprintf(" %s | %s | Tab:模式 | /:命令", a.provider.Name(), a.model)
-	right := contextDisplay + " | " + costDisplay
+
+	// 右侧分段拼接：context | cache | cost（cache 为空时跳过，避免空分隔符）
+	var rightParts []string
+	rightParts = append(rightParts, contextDisplay)
+	if cache := a.renderCacheHit(); cache != "" {
+		rightParts = append(rightParts, cache)
+	}
+	rightParts = append(rightParts, costDisplay)
+	right := strings.Join(rightParts, " | ")
 
 	leftW := lipgloss.Width(left)
 	rightW := lipgloss.Width(right)
@@ -1394,6 +1463,20 @@ func (a *App) renderStatusBar() string {
 
 	bar := left + strings.Repeat(" ", padding) + right
 	return statusBarStyle.Width(a.width).Render(bar)
+}
+
+// renderCacheHit 渲染 prefix cache 命中率。
+// eventLog 为 nil 或尚无输入 token 时返回空串（状态栏不显示该字段）。
+func (a *App) renderCacheHit() string {
+	if a.eventLog == nil {
+		return ""
+	}
+	cached, total := a.eventLog.CacheStats()
+	if total <= 0 {
+		return ""
+	}
+	pct := cached * 100 / total
+	return fmt.Sprintf("cache: %d%%", pct)
 }
 
 func (a *App) renderCost() string {

@@ -133,6 +133,21 @@ func (m *Manager) List() []*Session {
 	return result
 }
 
+// MostRecent 返回最近更新的会话（用于默认启动时恢复上次模型选择）。
+// 无会话时返回 nil。
+func (m *Manager) MostRecent() *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var recent *Session
+	for _, s := range m.sessions {
+		if recent == nil || s.UpdatedAt.After(recent.UpdatedAt) {
+			recent = s
+		}
+	}
+	return recent
+}
+
 // Delete 删除会话
 func (m *Manager) Delete(id string) error {
 	m.mu.Lock()
@@ -185,6 +200,26 @@ func (m *Manager) Save(id string) error {
 	}
 
 	return s.saveAll()
+}
+
+// UpdateModelProvider 更新活动会话的模型与 provider，并持久化 meta。
+// 用于 /model 切换后让下次启动恢复上次选择的模型。
+func (m *Manager) UpdateModelProvider(model, provider string) error {
+	m.mu.Lock()
+	s := m.sessions[m.activeID]
+	m.mu.Unlock()
+
+	if s == nil {
+		return fmt.Errorf("no active session")
+	}
+
+	s.mu.Lock()
+	s.Model = model
+	s.Provider = provider
+	s.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	return s.saveMeta()
 }
 
 func (s *Session) saveMeta() error {

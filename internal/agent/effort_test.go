@@ -71,18 +71,18 @@ func TestEffortManager(t *testing.T) {
 		manager := NewEffortManager()
 
 		manager.SetLevel(EffortLow)
-		if manager.GetMaxSteps() != 10 {
-			t.Errorf("expected 10 steps for low, got %d", manager.GetMaxSteps())
+		if manager.GetMaxSteps() != 20 {
+			t.Errorf("expected 20 steps for low, got %d", manager.GetMaxSteps())
 		}
 
 		manager.SetLevel(EffortMedium)
-		if manager.GetMaxSteps() != 25 {
-			t.Errorf("expected 25 steps for medium, got %d", manager.GetMaxSteps())
+		if manager.GetMaxSteps() != 50 {
+			t.Errorf("expected 50 steps for medium, got %d", manager.GetMaxSteps())
 		}
 
 		manager.SetLevel(EffortHigh)
-		if manager.GetMaxSteps() != 50 {
-			t.Errorf("expected 50 steps for high, got %d", manager.GetMaxSteps())
+		if manager.GetMaxSteps() != 100 {
+			t.Errorf("expected 100 steps for high, got %d", manager.GetMaxSteps())
 		}
 	})
 

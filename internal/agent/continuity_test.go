@@ -23,18 +23,22 @@ func TestAgent_SeedsHistoryIntoRequest(t *testing.T) {
 
 	_, _ = a.Run(context.Background(), "second question")
 
+	// 拆分 buildSystemPrompt 后，前缀为 [static-system, dynamic-system] + history + [user]
 	msgs := seen.Messages
-	if len(msgs) != 4 {
-		t.Fatalf("expected [system, user, assistant, user], got %d messages", len(msgs))
+	if len(msgs) != 5 {
+		t.Fatalf("expected [static-system, dynamic-system, user, assistant, user], got %d messages", len(msgs))
 	}
 	if msgs[0].Role != "system" {
-		t.Errorf("msgs[0] = %q, want system", msgs[0].Role)
+		t.Errorf("msgs[0] = %q, want system (static)", msgs[0].Role)
 	}
-	if msgs[1].Content != "first question" || msgs[2].Content != "first answer" {
-		t.Errorf("prior turn not seeded: %+v", msgs[1:3])
+	if msgs[1].Role != "system" {
+		t.Errorf("msgs[1] = %q, want system (dynamic context)", msgs[1].Role)
 	}
-	if msgs[3].Content != "second question" {
-		t.Errorf("new turn = %q", msgs[3].Content)
+	if msgs[2].Content != "first question" || msgs[3].Content != "first answer" {
+		t.Errorf("prior turn not seeded: %+v", msgs[2:4])
+	}
+	if msgs[4].Content != "second question" {
+		t.Errorf("new turn = %q", msgs[4].Content)
 	}
 }
 
@@ -68,8 +72,9 @@ func TestAgent_NoHistoryBehavesAsBefore(t *testing.T) {
 
 	_, _ = a.Run(context.Background(), "only question")
 
-	if len(seen.Messages) != 2 {
-		t.Fatalf("fresh agent should send [system, user], got %d", len(seen.Messages))
+	// 拆分后前缀为 [static-system, dynamic-system] + [user]
+	if len(seen.Messages) != 3 {
+		t.Fatalf("fresh agent should send [static-system, dynamic-system, user], got %d", len(seen.Messages))
 	}
 }
 

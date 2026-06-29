@@ -15,6 +15,35 @@
 
 ---
 
+## 安装
+
+**方式一：一键脚本（推荐，适合终端用户）**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+```
+
+脚本自动检测操作系统与架构（macOS/Linux × amd64/arm64），下载预编译二进制并配置 PATH。
+
+**方式二：Go 源码安装（适合 Go 开发者）**
+
+```bash
+go install github.com/ShawnLiuSZ/Helix/cmd/helix@latest
+```
+
+二进制安装到 `$GOPATH/bin/helix`，确保 `$GOPATH/bin` 在 PATH 中。
+
+**方式三：本地构建（适合贡献者）**
+
+```bash
+git clone https://github.com/ShawnLiuSZ/Helix.git
+cd Helix
+make build
+./bin/helix --version
+```
+
+---
+
 ## 快速开始
 
 ```bash

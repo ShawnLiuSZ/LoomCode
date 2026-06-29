@@ -60,9 +60,11 @@ type Event struct {
 
 // EventLog 事件日志
 type EventLog struct {
-	mu     sync.Mutex
-	events []Event
-	maxSize int
+	mu               sync.Mutex
+	events           []Event
+	maxSize          int
+	cachedTokens     int64 // 累计缓存命中 token 数
+	totalInputTokens int64 // 累计输入 token 数（含缓存命中部分）
 }
 
 // NewEventLog 创建事件日志
@@ -135,11 +137,36 @@ func (l *EventLog) LogCost(inputTokens, outputTokens int, cost float64) {
 	})
 }
 
-// LogCacheHit 记录缓存命中事件
-func (l *EventLog) LogCacheHit(tokens int) {
-	l.Log(EventCacheHit, fmt.Sprintf("cache hit: %d tokens", tokens), map[string]any{
-		"tokens": tokens,
-	})
+// LogCacheHit 记录缓存命中事件，并累计缓存命中 token 数。
+func (l *EventLog) LogCacheHit(tokens int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cachedTokens += tokens
+	event := Event{
+		Timestamp: time.Now(),
+		Type:      EventCacheHit,
+		Message:   fmt.Sprintf("cache hit: %d tokens", tokens),
+		Metadata:  map[string]any{"tokens": tokens},
+	}
+	if len(l.events) >= l.maxSize {
+		l.events = l.events[1:]
+	}
+	l.events = append(l.events, event)
+}
+
+// RecordInputTokens 累计输入 token 数（含缓存命中部分），用于计算 prefix cache 命中率。
+func (l *EventLog) RecordInputTokens(tokens int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.totalInputTokens += tokens
+}
+
+// CacheStats 返回累计缓存命中 token 数与累计输入 token 数，用于计算 prefix cache 命中率。
+// 调用方可据此计算命中率：cached/total。
+func (l *EventLog) CacheStats() (cachedTokens, totalTokens int64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cachedTokens, l.totalInputTokens
 }
 
 // LogMessage 记录消息事件

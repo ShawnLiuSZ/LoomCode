@@ -1,4 +1,4 @@
-.PHONY: build test lint install release clean tui tui-run dev
+.PHONY: build test lint install release clean tui tui-run dev test-qa test-cache
 
 APP_NAME   := helix
 BUILD_DIR  := bin
@@ -65,3 +65,14 @@ clean:
 # Dev setup
 dev-setup:
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# QA: build + vet + test, all must pass
+test-qa:
+	$(GO) build ./... && $(GO) vet ./... && $(GO) test ./...
+	@echo "QA PASSED"
+
+# Cache: run registry and prefix stability tests
+test-cache:
+	$(GO) test ./internal/tool/ -run TestRegistry -v
+	$(GO) test ./internal/agent/ -run TestPrefix -v || true
+	@echo "Cache tests done"

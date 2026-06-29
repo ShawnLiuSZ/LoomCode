@@ -67,6 +67,7 @@ type MultiAgent struct {
 	effort    *EffortManager
 	workDir   string
 	hooks     *tool.HookManager
+	eventLog  *EventLog // 共享事件日志（聚合所有内部 Agent 的缓存统计）
 
 	plan string
 	spec string
@@ -90,8 +91,13 @@ func NewMultiAgent(p provider.Provider, registry *tool.Registry) *MultiAgent {
 		maxSteps: effort.GetMaxSteps(),
 		goal:     NewGoalStopCondition(p),
 		effort:   effort,
+		eventLog: NewEventLog(1000),
 	}
 }
+
+// EventLog 返回共享事件日志（聚合所有内部 Agent 的缓存命中统计）。
+// UI 据此渲染 prefix cache 命中率。
+func (a *MultiAgent) EventLog() *EventLog { return a.eventLog }
 
 // SetMode 切换 Agent 模式
 func (a *MultiAgent) SetMode(mode Mode) {
@@ -127,6 +133,11 @@ func (a *MultiAgent) GetEffort() *EffortManager {
 // SetModel 设置模型名
 func (a *MultiAgent) SetModel(m string) {
 	a.model = m
+}
+
+// SetProvider 切换 Provider（用于 /model 跨 provider 切换）
+func (a *MultiAgent) SetProvider(p provider.Provider) {
+	a.provider = p
 }
 
 // SetWorkDir 设置工作目录
