@@ -199,6 +199,12 @@ func (a *Agent) compactMessages(ctx context.Context, ctxWindow int) {
 	rebuilt = append(rebuilt, provider.Message{Role: "system", Content: summary})
 	rebuilt = append(rebuilt, a.messages[cut:]...)
 	a.messages = rebuilt
+
+	// 压缩改变了 prefix，旧 prefix cache 已失效；重置调度器计时，
+	// 使下一次请求建立新的缓存基线。
+	if a.cacheScheduler != nil {
+		a.cacheScheduler.Reset()
+	}
 }
 
 const compactionSystemPrompt = `You are a context-compression assistant for a coding agent.

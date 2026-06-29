@@ -3,16 +3,27 @@ package tool
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+)
+
+// 确定性剪枝阈值：超过此行数的结果保留头尾各 N 行，中间用占位符替代。
+// 剪枝规则确定性（无随机数、无时间戳），保证相同输入产生相同输出 → prefix hash 稳定，
+// 提升 prefix cache 命中率（P2 架构级优化）。
+const (
+	maxToolResultLines = 200 // 超过此行数触发剪枝
+	headKeepLines      = 50  // 保留头部行数
+	tailKeepLines      = 50  // 保留尾部行数
 )
 
 // Executor 工具执行引擎
 type Executor struct {
-	registry      *Registry
-	guards        []Guard
-	hooks         *HookManager
-	maxParallel   int
-	mu            sync.Mutex
+	registry       *Registry
+	guards         []Guard
+	hooks          *HookManager
+	maxParallel    int
+	maxResultLines int // 触发剪枝的行数阈值，<=0 时使用 maxToolResultLines
+	mu             sync.Mutex
 }
 
 // Guard 执行守卫函数
@@ -27,8 +38,9 @@ type Call struct {
 // NewExecutor 创建执行引擎
 func NewExecutor(registry *Registry) *Executor {
 	return &Executor{
-		registry:    registry,
-		maxParallel: 3,
+		registry:       registry,
+		maxParallel:    3,
+		maxResultLines: maxToolResultLines,
 	}
 }
 
@@ -50,6 +62,24 @@ func (e *Executor) MaxParallel() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.maxParallel
+}
+
+// SetMaxResultLines 设置工具结果剪枝行数阈值。
+// n <= 0 时恢复默认值 maxToolResultLines。
+func (e *Executor) SetMaxResultLines(n int) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.maxResultLines = n
+}
+
+// MaxResultLines 返回当前剪枝行数阈值（<=0 视为默认值）。
+func (e *Executor) MaxResultLines() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.maxResultLines <= 0 {
+		return maxToolResultLines
+	}
+	return e.maxResultLines
 }
 
 // SetHooks 设置钩子管理器
@@ -204,5 +234,33 @@ func (e *Executor) executeOne(ctx context.Context, call Call) *Result {
 		}
 	}
 
+	// 确定性剪枝：仅对成功结果剪枝，错误结果保留完整信息用于调试。
+	// 大体积工具结果（read_file 大文件、bash 长日志）在多次 Run 间内容易变，
+	// 剪枝后保证相同输入产生相同输出，稳定 prefix hash，提升 cache 命中率。
+	if result.Error == "" {
+		result.Content = pruneResult(result.Content, e.MaxResultLines())
+	}
+
 	return result
+}
+
+// pruneResult 确定性剪枝工具结果。
+// 超过 maxLines 行的内容，保留头部 headKeepLines 行与尾部 tailKeepLines 行，
+// 中间用占位符替代。占位符仅含被剪枝行数与总行数（确定性），不含时间戳/随机数，
+// 因此相同输入恒产生相同输出 → prefix hash 稳定。
+// maxLines <= 0 时使用默认值 maxToolResultLines。
+func pruneResult(content string, maxLines int) string {
+	if maxLines <= 0 {
+		maxLines = maxToolResultLines
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) <= maxLines {
+		return content
+	}
+	head := lines[:headKeepLines]
+	tail := lines[len(lines)-tailKeepLines:]
+	omitted := len(lines) - headKeepLines - tailKeepLines
+	return strings.Join(head, "\n") +
+		fmt.Sprintf("\n... (pruned %d lines, %d total) ...\n", omitted, len(lines)) +
+		strings.Join(tail, "\n")
 }

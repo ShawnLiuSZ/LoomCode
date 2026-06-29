@@ -15,38 +15,48 @@ import (
 
 // Agent 核心 Agent
 type Agent struct {
-	provider  provider.Provider
-	tools     *tool.Registry
-	executor  *tool.Executor
-	messages  []provider.Message
-	maxSteps  int
-	model     string
-	workDir   string
-	goal      *GoalStopCondition // 停止条件
-	skillsMgr *skills.Manager    // Skills 管理器
-	memory    MemoryProvider     // 记忆提供者（项目知识/用户偏好）
-	history   []provider.Message // 跨轮次对话历史（不含 system，每轮重建）
-	onCost    func(float64)      // 成本回调
-	effort    *EffortManager     // 思考强度管理器
-	eventLog  *EventLog          // 事件日志（缓存命中统计等）
+	provider    provider.Provider
+	tools       *tool.Registry
+	executor    *tool.Executor
+	messages    []provider.Message
+	maxSteps    int
+	model       string
+	workDir     string
+	goal        *GoalStopCondition  // 停止条件
+	skillsMgr   *skills.Manager     // Skills 管理器
+	memory      MemoryProvider      // 记忆提供者（项目知识/用户偏好）
+	history     []provider.Message  // 跨轮次对话历史（不含 system，每轮重建）
+	onCost      func(float64)       // 成本回调
+	effort      *EffortManager      // 思考强度管理器
+	eventLog    *EventLog           // 事件日志（缓存命中统计等）
+	fingerprint *FingerprintTracker // prefix 指纹追踪器（验证 prefix cache 是否命中预期）
 
-	costBudget       float64
-	onBudgetExceeded func()
-	costAccumulated  float64
+	costBudget           float64
+	onBudgetExceeded     func()
+	costAccumulated      float64
+	cacheScheduler       *CacheScheduler // CacheTTL-aware 调度器；provider 无 CacheTTL 时为 nil（禁用）
+	systemPromptOverride string          // 非空时覆盖默认静态系统提示（用于 planner/executor 分离 session）
 }
 
 // New 创建 Agent
 func New(p provider.Provider, registry *tool.Registry) *Agent {
 	effort := NewEffortManager()
-	return &Agent{
-		provider: p,
-		tools:    registry,
-		executor: tool.NewExecutor(registry),
-		goal:     NewGoalStopCondition(p),
-		maxSteps: effort.GetMaxSteps(),
-		effort:   effort,
-		eventLog: NewEventLog(1000),
+	a := &Agent{
+		provider:    p,
+		tools:       registry,
+		executor:    tool.NewExecutor(registry),
+		goal:        NewGoalStopCondition(p),
+		maxSteps:    effort.GetMaxSteps(),
+		effort:      effort,
+		eventLog:    NewEventLog(1000),
+		fingerprint: NewFingerprintTracker(),
 	}
+	// 若 provider 声明了 CacheTTL，启用 CacheTTL-aware 调度器；
+	// 否则 cacheScheduler 保持 nil（禁用调度）。
+	if ttl := p.Capabilities().CacheTTL; ttl > 0 {
+		a.cacheScheduler = NewCacheScheduler(ttl)
+	}
+	return a
 }
 
 // SetEventLog 注入共享事件日志（用于 MultiAgent 聚合多轮缓存统计）。
@@ -69,6 +79,11 @@ func (a *Agent) GetEffort() *EffortManager { return a.effort }
 
 // SetModel 设置模型名
 func (a *Agent) SetModel(m string) { a.model = m }
+
+// SetSystemPrompt 覆盖默认静态系统提示。
+// 用于 planner/executor 分离 session 架构中给 planner 注入专用提示。
+// 空字符串表示使用默认的 Helix 身份提示。
+func (a *Agent) SetSystemPrompt(s string) { a.systemPromptOverride = s }
 
 // SetWorkDir 设置工作目录
 func (a *Agent) SetWorkDir(d string) { a.workDir = d }
@@ -283,6 +298,16 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			// 压缩以适应上下文窗口（缓存友好，失败时回退机械截断）
 			a.compactMessages(ctx, a.getContextWindow())
 
+			// 记录 prefix 指纹：理论上 prefix cache 是否应命中
+			if a.fingerprint != nil {
+				a.fingerprint.RecordRequest(a.computePrefix())
+			}
+
+			// 标记一次 LLM 请求（CacheTTL 调度）
+			if a.cacheScheduler != nil {
+				a.cacheScheduler.MarkRequest()
+			}
+
 			streamCh, err := a.provider.Stream(ctx, &provider.ChatRequest{
 				Model:           a.model,
 				Messages:        a.messages,
@@ -332,7 +357,14 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 					a.eventLog.RecordInputTokens(int64(lastUsage.PromptTokens))
 					if lastUsage.CachedInputTokens > 0 {
 						a.eventLog.LogCacheHit(int64(lastUsage.CachedInputTokens))
+						if a.cacheScheduler != nil {
+							a.cacheScheduler.MarkCacheHit()
+						}
 					}
+				}
+				// 比对实际缓存命中与预期，未命中告警
+				if a.fingerprint != nil {
+					a.fingerprint.RecordResponse(int64(lastUsage.CachedInputTokens))
 				}
 				if a.onCost != nil {
 					cost := a.provider.Cost(a.model, *lastUsage)
@@ -452,6 +484,16 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 		// 压缩以适应上下文窗口（缓存友好，失败时回退机械截断）
 		a.compactMessages(ctx, a.getContextWindow())
 
+		// 记录 prefix 指纹：理论上 prefix cache 是否应命中
+		if a.fingerprint != nil {
+			a.fingerprint.RecordRequest(a.computePrefix())
+		}
+
+		// 标记一次 LLM 请求（CacheTTL 调度）
+		if a.cacheScheduler != nil {
+			a.cacheScheduler.MarkRequest()
+		}
+
 		resp, err := a.provider.Chat(ctx, &provider.ChatRequest{
 			Model:           a.model,
 			Messages:        a.messages,
@@ -467,7 +509,14 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			a.eventLog.RecordInputTokens(int64(resp.Usage.PromptTokens))
 			if resp.Usage.CachedInputTokens > 0 {
 				a.eventLog.LogCacheHit(int64(resp.Usage.CachedInputTokens))
+				if a.cacheScheduler != nil {
+					a.cacheScheduler.MarkCacheHit()
+				}
 			}
+		}
+		// 比对实际缓存命中与预期，未命中告警
+		if a.fingerprint != nil {
+			a.fingerprint.RecordResponse(int64(resp.Usage.CachedInputTokens))
 		}
 		if a.onCost != nil {
 			cost := a.provider.Cost(a.model, resp.Usage)
@@ -560,9 +609,25 @@ func (a *Agent) executeTools(ctx context.Context, toolCalls []provider.ToolCall)
 	return a.executor.Execute(ctx, calls)
 }
 
+// computePrefix 计算用于指纹追踪的 prefix：静态 system prompt + tools 定义 JSON。
+// 这部分在多次请求间应保持字节级一致，是 provider prefix cache 命中的稳定前缀。
+// tools 定义用 JSON 序列化以保证 map 顺序不影响指纹。
+func (a *Agent) computePrefix() string {
+	toolDefsJSON, err := json.Marshal(a.buildToolDefs())
+	if err != nil {
+		// 序列化失败时退化为不含 tools 的 prefix，指纹仍可比对
+		return a.buildStaticSystemPrompt()
+	}
+	return a.buildStaticSystemPrompt() + string(toolDefsJSON)
+}
+
 // buildStaticSystemPrompt 返回永不变化的静态系统提示（身份 + 工作原则）。
 // 这部分在多次 Run 间字节级一致，配合 tools 定义可被 provider prefix cache 命中。
+// 若通过 SetSystemPrompt 设置了 override，则直接返回 override（用于 planner 专用提示）。
 func (a *Agent) buildStaticSystemPrompt() string {
+	if a.systemPromptOverride != "" {
+		return a.systemPromptOverride
+	}
 	var sb strings.Builder
 	sb.WriteString("You are Helix, an AI coding assistant operating in a terminal.\n")
 	sb.WriteString("You have access to tools for reading/writing files, editing code, executing commands, and searching code.\n")

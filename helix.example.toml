@@ -108,3 +108,14 @@ default_model = "deepseek-v4-flash"
 
 # [search]
 # engine = "bing"  # bing | baidu | searxng | tavily | perplexity
+
+# ============================================================
+# Agent（planner/executor 分离 session 架构）
+# 参考 DeepSeek-Reasonix SPEC.md §3.5
+# ============================================================
+
+# [agent]
+# planner_model = "deepseek-v4-pro"
+# # 非空时启用分离 session：planner 用此模型在独立 session 中规划，
+# # executor 用默认模型在独立 session 中执行。
+# # 留空则退化为单 session 模式（与 MultiAgent 行为一致）。

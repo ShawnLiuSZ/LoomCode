@@ -18,6 +18,7 @@ type Config struct {
 	Permissions     PermissionConfig    `toml:"permissions"`
 	Search          SearchConfig        `toml:"search"`
 	Experimental    ExperimentalConfig  `toml:"experimental"`
+	Agent           AgentConfig         `toml:"agent"`
 }
 
 // ProviderConfig 单个 Provider 配置
@@ -93,6 +94,17 @@ type SearchConfig struct {
 type ExperimentalConfig struct {
 	MaxMode   bool `toml:"maxMode"`
 	BatchTool bool `toml:"batchTool"`
+}
+
+// AgentConfig Agent 层配置（planner/executor 分离 session 等）。
+// 参考 DeepSeek-Reasonix SPEC.md §3.5：planner 和 executor 在两个独立 session 中运行，
+// session 之间不混合，每个 session prepend-only 增长，保持 prefix cache 命中。
+type AgentConfig struct {
+	// PlannerModel 规划器模型（可选）。
+	// 非空时启用 planner/executor 分离 session 架构：
+	// planner 用此模型在独立 session 中规划，executor 用默认模型在独立 session 中执行。
+	// 空时退化为单 session 模式（与 MultiAgent 行为一致）。
+	PlannerModel string `toml:"planner_model"`
 }
 
 // Load 从指定路径加载配置
