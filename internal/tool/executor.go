@@ -226,6 +226,10 @@ func pruneResult(content string, maxLines int) string {
 	if len(lines) <= maxLines {
 		return content
 	}
+	// 防御性 clamp：确保保留头尾不重叠、占位符非负，防止 maxLines 被设得很小时反而膨胀。
+	if maxLines < headKeepLines+tailKeepLines {
+		maxLines = headKeepLines + tailKeepLines
+	}
 	head := lines[:headKeepLines]
 	tail := lines[len(lines)-tailKeepLines:]
 	omitted := len(lines) - headKeepLines - tailKeepLines

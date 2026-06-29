@@ -117,6 +117,45 @@ func TestCompactMessages_SummarizesOldRounds(t *testing.T) {
 	}
 }
 
+func TestCompactMessages_KeepsDynamicSystemPrompt(t *testing.T) {
+	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+		return &provider.ChatResponse{Content: "summary"}, nil
+	})
+	a := New(p, tool.NewRegistry())
+	a.SetModel("m")
+	a.SetWorkDir("/tmp/project-x")
+	a.messages = []provider.Message{
+		{Role: "system", Content: "static system"},
+		{Role: "system", Content: "dynamic env"},
+		{Role: "user", Content: strings.Repeat("u", 300)},
+		{Role: "assistant", ToolCalls: []provider.ToolCall{{ID: "c1"}}},
+		{Role: "tool", ToolCallID: "c1", Content: strings.Repeat("t", 300)},
+		{Role: "user", Content: "U6"},
+		{Role: "assistant", Content: "A7"},
+		{Role: "user", Content: "U8"},
+		{Role: "assistant", Content: "A9"},
+		{Role: "user", Content: "U10"},
+		{Role: "assistant", Content: "A11"},
+		{Role: "user", Content: "U12"},
+	}
+
+	a.compactMessages(context.Background(), 100)
+
+	// 前两条 system 必须保留，顺序为 [static, dynamic, summary, ...]。
+	if len(a.messages) < 3 {
+		t.Fatalf("expected at least 3 messages after compaction, got %d", len(a.messages))
+	}
+	if a.messages[0].Content != "static system" {
+		t.Errorf("messages[0] = %q, want static system", a.messages[0].Content)
+	}
+	if a.messages[1].Content != "dynamic env" {
+		t.Errorf("messages[1] = %q, want dynamic env", a.messages[1].Content)
+	}
+	if !strings.Contains(a.messages[2].Content, "summary") {
+		t.Errorf("messages[2] should hold the summary, got %q", a.messages[2].Content)
+	}
+}
+
 func TestCompactMessages_CutAdjustsPastToolMessage(t *testing.T) {
 	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 		return &provider.ChatResponse{Content: "S"}, nil
