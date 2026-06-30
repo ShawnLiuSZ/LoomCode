@@ -258,17 +258,17 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 	models := make([]provider.ModelConfigItem, len(provCfg.Models))
 	for i, m := range provCfg.Models {
 		models[i] = provider.ModelConfigItem{
-			ID:            m.ID,
-			Name:          m.Name,
-			ContextWindow: m.ContextWindow,
-			CostInput:     m.Cost.Input,
+			ID:              m.ID,
+			Name:            m.Name,
+			ContextWindow:   m.ContextWindow,
+			CostInput:       m.Cost.Input,
 			CostCachedInput: m.Cost.CachedInput,
-			CostOutput:    m.Cost.Output,
-			Reasoning:     m.Capabilities.Reasoning,
-			ToolCall:      m.Capabilities.ToolCall,
-			PrefixCache:   m.Capabilities.PrefixCache,
-			Vision:        m.Capabilities.Vision,
-			Voice:         m.Capabilities.Voice,
+			CostOutput:      m.Cost.Output,
+			Reasoning:       m.Capabilities.Reasoning,
+			ToolCall:        m.Capabilities.ToolCall,
+			PrefixCache:     m.Capabilities.PrefixCache,
+			Vision:          m.Capabilities.Vision,
+			Voice:           m.Capabilities.Voice,
 		}
 	}
 
@@ -347,7 +347,7 @@ func chatCommand() {
 		}
 	}
 
-	program := tea.NewProgram(app, tea.WithAltScreen())
+	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
 	app.SetProgram(program)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

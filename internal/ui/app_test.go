@@ -148,7 +148,7 @@ func TestModelPickerShowsAllProvidersWithArrowMovement(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")})
 
 	t.Logf("textarea value before enter: %q", m.(*App).textArea.Value())
-	
+
 	// 直接调用 handleModelCmd 验证核心逻辑
 	app2 := m.(*App)
 	app2.handleModelCmd([]string{"/model"})
@@ -235,7 +235,7 @@ func TestModelPickerShowsAllProvidersWithArrowMovement(t *testing.T) {
 
 	// 再测试跨 provider 切换 — 直接操作状态模拟
 	app2.showModelPicker = true
-	app2.modelIdx = 2           // 选中 mimo/mimo-v2.5
+	app2.modelIdx = 2               // 选中 mimo/mimo-v2.5
 	app2.modelList = app2.modelList // 保持列表不变
 	app2.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	if app2.model != "mimo-v2.5" {
@@ -263,5 +263,60 @@ func TestSlashTriggersSuggestions(t *testing.T) {
 	}
 	if len(result.suggestions) == 0 {
 		t.Error("expected at least one suggestion")
+	}
+}
+
+func TestStreamMessagesAccumulateAndFinalize(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app.loading = true
+
+	var m tea.Model = app
+	m, _ = m.Update(streamChunkMsg("hello "))
+	m, _ = m.Update(streamChunkMsg("world"))
+
+	result := m.(*App)
+	if result.streamBuf != "hello world" {
+		t.Errorf("expected streamBuf 'hello world', got %q", result.streamBuf)
+	}
+	if !result.loading {
+		t.Error("expected loading to remain true while streaming")
+	}
+
+	m, _ = m.Update(streamDoneMsg{})
+	result = m.(*App)
+	if result.loading {
+		t.Error("expected loading to be false after stream done")
+	}
+	if result.streamBuf != "" {
+		t.Errorf("expected streamBuf to be cleared, got %q", result.streamBuf)
+	}
+	lastMsg := result.messages[len(result.messages)-1]
+	if lastMsg.Role != "assistant" || lastMsg.Content != "hello world" {
+		t.Errorf("expected final assistant message 'hello world', got %q/%q", lastMsg.Role, lastMsg.Content)
+	}
+}
+
+func TestStreamErrorClearsBuffer(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app.loading = true
+	app.streamBuf = "partial"
+
+	var m tea.Model = app
+	m, _ = m.Update(streamErrorMsg("something went wrong"))
+
+	result := m.(*App)
+	if result.loading {
+		t.Error("expected loading to be false after stream error")
+	}
+	if result.streamBuf != "" {
+		t.Errorf("expected streamBuf to be cleared after error, got %q", result.streamBuf)
+	}
+	lastMsg := result.messages[len(result.messages)-1]
+	if lastMsg.Role != "error" {
+		t.Errorf("expected last message role 'error', got %q", lastMsg.Role)
 	}
 }

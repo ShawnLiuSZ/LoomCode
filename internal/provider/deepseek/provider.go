@@ -78,9 +78,9 @@ type DeepSeekProvider struct {
 	cfg    provider.Config
 }
 
-func (p *DeepSeekProvider) Name() string                          { return p.name }
-func (p *DeepSeekProvider) Models() []provider.ModelInfo          { return p.models }
-func (p *DeepSeekProvider) Capabilities() provider.Capabilities   { return p.caps }
+func (p *DeepSeekProvider) Name() string                        { return p.name }
+func (p *DeepSeekProvider) Models() []provider.ModelInfo        { return p.models }
+func (p *DeepSeekProvider) Capabilities() provider.Capabilities { return p.caps }
 
 func (p *DeepSeekProvider) Cost(modelID string, usage provider.Usage) provider.Cost {
 	var modelCost provider.ModelCost
@@ -189,6 +189,7 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 				Content          string `json:"content"`
 				ReasoningContent string `json:"reasoning_content"`
 				ToolCalls        []struct {
+					Index    int    `json:"index"`
 					ID       string `json:"id"`
 					Function struct {
 						Name      string `json:"name"`
@@ -198,9 +199,9 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 			} `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			TotalTokens         int `json:"total_tokens"`
+			PromptTokens         int `json:"prompt_tokens"`
+			CompletionTokens     int `json:"completion_tokens"`
+			TotalTokens          int `json:"total_tokens"`
 			PromptCacheHitTokens int `json:"prompt_cache_hit_tokens"`
 		} `json:"usage"`
 	}
@@ -227,9 +228,9 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 			var args map[string]any
 			json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
-				ID:   tc.ID,
+				ID:       tc.ID,
 				Function: provider.ToolCallFunc{Name: tc.Function.Name},
-				Args: args,
+				Args:     args,
 			})
 		}
 	}
@@ -247,6 +248,7 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
 					ToolCalls        []struct {
+						Index    int    `json:"index"`
 						ID       string `json:"id"`
 						Function struct {
 							Name      string `json:"name"`
@@ -284,6 +286,7 @@ func (p *DeepSeekProvider) readDeepSeekStream(resp *http.Response, ch chan<- pro
 
 			for _, tc := range delta.ToolCalls {
 				toolCalls = append(toolCalls, provider.ToolCallDelta{
+					Index:     tc.Index,
 					ID:        tc.ID,
 					Name:      tc.Function.Name,
 					Arguments: tc.Function.Arguments,

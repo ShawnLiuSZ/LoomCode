@@ -2,10 +2,10 @@ package provider
 
 // Message 对话消息
 type Message struct {
-	Role             string `json:"role"`
-	Content          string `json:"content"`
-	ReasoningContent string `json:"reasoning_content,omitempty"` // DeepSeek thinking 模式
-	ToolCallID       string `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // DeepSeek thinking 模式
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 }
 
@@ -19,8 +19,8 @@ type ChatRequest struct {
 
 // ToolDef 工具定义（OpenAI tool 格式）
 type ToolDef struct {
-	Type     string       `json:"type"`
-	Function FunctionDef  `json:"function"`
+	Type     string      `json:"type"`
+	Function FunctionDef `json:"function"`
 }
 
 // FunctionDef 函数定义
@@ -65,7 +65,7 @@ type StreamEvent struct {
 type StreamEventType int
 
 const (
-	EventText     StreamEventType = iota
+	EventText StreamEventType = iota
 	EventToolCall
 	EventDone
 	EventError
@@ -73,6 +73,7 @@ const (
 
 // ToolCallDelta 流式工具调用增量
 type ToolCallDelta struct {
+	Index     int // 同一轮中第几个 tool call（OpenAI/DeepSeek 流式格式使用）
 	ID        string
 	Name      string
 	Arguments string // JSON 片段，需要累积

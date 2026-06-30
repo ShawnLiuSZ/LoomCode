@@ -209,3 +209,51 @@ func TestAgent_BuildSystemPrompt(t *testing.T) {
 		t.Error("system prompt should mention tools")
 	}
 }
+
+func TestMergeToolCallDeltas_ByIndex(t *testing.T) {
+	deltas := []provider.ToolCallDelta{
+		{Index: 0, ID: "call_1", Name: "read_file", Arguments: ""},
+		{Index: 0, ID: "", Name: "", Arguments: "{"},
+		{Index: 0, ID: "", Name: "", Arguments: "\"path\": \"/tmp/test.txt\""},
+		{Index: 0, ID: "", Name: "", Arguments: "}"},
+		{Index: 1, ID: "call_2", Name: "bash", Arguments: ""},
+		{Index: 1, ID: "", Name: "", Arguments: "{\"cmd\": \"ls\"}"},
+	}
+
+	merged := mergeToolCallDeltas(deltas)
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 tool calls, got %d", len(merged))
+	}
+
+	if merged[0].ID != "call_1" {
+		t.Errorf("expected first call id call_1, got %q", merged[0].ID)
+	}
+	if merged[0].Function.Name != "read_file" {
+		t.Errorf("expected first call name read_file, got %q", merged[0].Function.Name)
+	}
+	if path, ok := merged[0].Args["path"].(string); !ok || path != "/tmp/test.txt" {
+		t.Errorf("expected first call args path /tmp/test.txt, got %v", merged[0].Args)
+	}
+
+	if merged[1].ID != "call_2" {
+		t.Errorf("expected second call id call_2, got %q", merged[1].ID)
+	}
+	if merged[1].Function.Name != "bash" {
+		t.Errorf("expected second call name bash, got %q", merged[1].Function.Name)
+	}
+}
+
+func TestMergeToolCallDeltas_DropsEmptyIndexWithoutID(t *testing.T) {
+	// 某些 provider 的第一个 delta 可能不带 index/id，这种无效 delta 不应产生空 ID tool call
+	deltas := []provider.ToolCallDelta{
+		{Index: 0, ID: "call_1", Name: "read_file", Arguments: "{\"path\": \"/tmp\"}"},
+	}
+
+	merged := mergeToolCallDeltas(deltas)
+	if len(merged) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(merged))
+	}
+	if merged[0].ID != "call_1" {
+		t.Errorf("expected id call_1, got %q", merged[0].ID)
+	}
+}

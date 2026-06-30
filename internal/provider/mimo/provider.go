@@ -40,11 +40,11 @@ func (a *Adapter) Create(cfg provider.Config) (provider.Provider, error) {
 
 	// MiMo 特性：OAuth 认证、语音支持、推理
 	caps := provider.Capabilities{
-		SupportsReasoning:   true,
-		SupportsToolCall:    true,
-		SupportsStreaming:   true,
-		SupportsVoice:       true,
-		SupportsOAuth:       cfg.AuthMethod == "oauth",
+		SupportsReasoning:    true,
+		SupportsToolCall:     true,
+		SupportsStreaming:    true,
+		SupportsVoice:        true,
+		SupportsOAuth:        cfg.AuthMethod == "oauth",
 		MaxToolCallsPerRound: 16,
 	}
 
@@ -237,9 +237,9 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 			var args map[string]any
 			json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
-				ID:   tc.ID,
+				ID:       tc.ID,
 				Function: provider.ToolCallFunc{Name: tc.Function.Name},
-				Args: args,
+				Args:     args,
 			})
 		}
 	}
@@ -256,6 +256,7 @@ func (p *MiMoProvider) readSSEStream(ctx context.Context, resp *http.Response, c
 					Content          string `json:"content"`
 					ReasoningContent string `json:"reasoning_content"`
 					ToolCalls        []struct {
+						Index    int    `json:"index"`
 						ID       string `json:"id"`
 						Function struct {
 							Name      string `json:"name"`
@@ -291,6 +292,7 @@ func (p *MiMoProvider) readSSEStream(ctx context.Context, resp *http.Response, c
 
 			for _, tc := range delta.ToolCalls {
 				toolCalls = append(toolCalls, provider.ToolCallDelta{
+					Index:     tc.Index,
 					ID:        tc.ID,
 					Name:      tc.Function.Name,
 					Arguments: tc.Function.Arguments,

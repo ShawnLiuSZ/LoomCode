@@ -190,6 +190,7 @@ func ParseStandardChunk(data []byte) (content string, toolCalls []ToolCallDelta,
 			Delta struct {
 				Content   string `json:"content"`
 				ToolCalls []struct {
+					Index    int    `json:"index"`
 					ID       string `json:"id"`
 					Function struct {
 						Name      string `json:"name"`
@@ -210,6 +211,7 @@ func ParseStandardChunk(data []byte) (content string, toolCalls []ToolCallDelta,
 		content = delta.Content
 		for _, tc := range delta.ToolCalls {
 			toolCalls = append(toolCalls, ToolCallDelta{
+				Index:     tc.Index,
 				ID:        tc.ID,
 				Name:      tc.Function.Name,
 				Arguments: tc.Function.Arguments,

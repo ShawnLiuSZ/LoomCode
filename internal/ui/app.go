@@ -67,11 +67,11 @@ type App struct {
 	skillsMgr *skills.Manager
 
 	// 模型选择状态
-	showModelPicker     bool
-	modelList           []modelPickerEntry
-	modelIdx            int
-	allProviders        []provider.Provider
-	allProviderModels   map[string][]provider.ModelInfo
+	showModelPicker   bool
+	modelList         []modelPickerEntry
+	modelIdx          int
+	allProviders      []provider.Provider
+	allProviderModels map[string][]provider.ModelInfo
 
 	// 成本
 	costTotal   float64
@@ -82,12 +82,12 @@ type App struct {
 	savedMsgCount int // 已保存的消息数量
 
 	// 上下文使用
-	tokensUsed    int
-	tokensWindow  int
+	tokensUsed   int
+	tokensWindow int
 
 	// Agent 活动状态
-	lastStep    int
-	lastTool    string
+	lastStep int
+	lastTool string
 
 	// 流式输出缓冲
 	streamMu  sync.Mutex
@@ -127,22 +127,22 @@ var allCommands = []string{
 
 // 样式
 var (
-	userStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	assistantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	systemStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
-	toolStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
-	inputStyle     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
-	suggestionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	suggestionSel   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
-	helpStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	loadingStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
-	headerStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true).Padding(0, 1)
-	statusBarStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7")).Padding(0, 1)
-	costGreenStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	costYellowStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	costRedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	activityStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Italic(true)
+	userStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	assistantStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	systemStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	toolStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	inputStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+	suggestionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	suggestionSel    = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
+	helpStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	loadingStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
+	headerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true).Padding(0, 1)
+	statusBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7")).Padding(0, 1)
+	costGreenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	costYellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	costRedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+	activityStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Italic(true)
 	contextWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
 )
 
@@ -174,15 +174,15 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	)
 
 	app := &App{
-		agent:          ag,
-		provider:       p,
-		tools:          tools,
-		mode:           agent.ModeBuild,
-		envVars:        loadEnvVars(),
-		skillsMgr:      skillsMgr,
-		textArea:       ta,
+		agent:           ag,
+		provider:        p,
+		tools:           tools,
+		mode:            agent.ModeBuild,
+		envVars:         loadEnvVars(),
+		skillsMgr:       skillsMgr,
+		textArea:        ta,
 		glamourRenderer: renderer,
-		renderCache:    make(map[string]string),
+		renderCache:     make(map[string]string),
 		messages: []chatMessage{
 			{Role: "system", Content: "Helix CLI — 双螺旋 · 多模型 · 可扩展", Timestamp: time.Now()},
 			{Role: "system", Content: "输入任务开始 | 输入 / 查看命令 | Tab 切换模式 | Ctrl+C 退出", Timestamp: time.Now()},
@@ -199,8 +199,8 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 }
 
 func (a *App) SetSessionManager(mgr *session.Manager) { a.sessionMgr = mgr }
-func (a *App) SetModel(m string)                       { a.model = m; a.agent.SetModel(m) }
-func (a *App) SetProgram(p *tea.Program)               { a.program = p }
+func (a *App) SetModel(m string)                      { a.model = m; a.agent.SetModel(m) }
+func (a *App) SetProgram(p *tea.Program)              { a.program = p }
 
 // SetProviders 设置所有 provider 列表（用于 /model 跨 provider 切换）
 func (a *App) SetProviders(providers []provider.Provider) {
@@ -315,6 +315,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case streamErrorMsg:
+		a.streamMu.Lock()
+		a.streamBuf = ""
+		a.streamMu.Unlock()
 		a.loading = false
 		a.cancelFunc = nil
 		errStr := friendlyError(string(msg))
@@ -1020,8 +1023,11 @@ func (a *App) renderMessages(visibleLines int) string {
 	}
 
 	// 流式输出缓冲
-	if a.loading && a.streamBuf != "" {
-		rendered := a.renderMarkdown(a.streamBuf)
+	a.streamMu.Lock()
+	buf := a.streamBuf
+	a.streamMu.Unlock()
+	if a.loading && buf != "" {
+		rendered := a.renderMarkdown(buf)
 		for _, line := range strings.Split(rendered, "\n") {
 			sb.WriteString(assistantStyle.Render("  " + line))
 			sb.WriteString("\n")
@@ -1097,38 +1103,40 @@ func (a *App) renderContextUsage() string {
 func (a *App) runAgent(ctx context.Context, input string) tea.Cmd {
 	return func() tea.Msg {
 		textCh, errCh := a.agent.RunStream(ctx, input)
+		var streamErr error
 
-		for {
+		for textCh != nil || errCh != nil {
 			select {
 			case text, ok := <-textCh:
 				if !ok {
-					if a.program != nil {
-						a.program.Send(streamDoneMsg{})
-					}
-					return nil
+					textCh = nil
+					break
 				}
 				if a.program != nil {
 					a.program.Send(streamChunkMsg(text))
 				}
 			case err, ok := <-errCh:
-				if ok && err != nil {
-					if a.program != nil {
-						a.program.Send(streamErrorMsg(err.Error()))
-					}
-					return nil
+				if !ok {
+					errCh = nil
+					break
 				}
+				streamErr = err
 				if a.program != nil {
-					a.program.Send(streamDoneMsg{})
+					a.program.Send(streamErrorMsg(err.Error()))
 				}
-				return nil
 			}
 		}
+
+		if streamErr == nil && a.program != nil {
+			a.program.Send(streamDoneMsg{})
+		}
+		return nil
 	}
 }
 
 // 消息类型
 type streamChunkMsg string
-type streamDoneMsg struct{ cost float64 }
+type streamDoneMsg struct{}
 type streamErrorMsg string
 
 // truncateRunes 按 rune 边界截断字符串，避免切在多字节字符中间

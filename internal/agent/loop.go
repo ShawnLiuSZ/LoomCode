@@ -27,11 +27,11 @@ type Agent struct {
 // New 创建 Agent
 func New(p provider.Provider, registry *tool.Registry) *Agent {
 	return &Agent{
-		provider:  p,
-		tools:     registry,
-		executor:  tool.NewExecutor(registry),
-		goal:      NewGoalStopCondition(p),
-		maxSteps:  10,
+		provider: p,
+		tools:    registry,
+		executor: tool.NewExecutor(registry),
+		goal:     NewGoalStopCondition(p),
+		maxSteps: 10,
 	}
 }
 
@@ -263,13 +263,20 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 }
 
 // mergeToolCallDeltas 合并流式工具调用增量
+// OpenAI/DeepSeek 流式格式通过 index 标识同一 tool call 的多个 delta，
+// 后续 delta 可能只包含 arguments 片段而缺少 id/name，因此必须按 index 合并。
 func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
-	byID := make(map[string]*provider.ToolCall)
+	byIndex := make(map[int]*provider.ToolCall)
+	var order []int
 	for _, d := range deltas {
-		tc, ok := byID[d.ID]
+		tc, ok := byIndex[d.Index]
 		if !ok {
 			tc = &provider.ToolCall{ID: d.ID, Function: provider.ToolCallFunc{Name: d.Name}}
-			byID[d.ID] = tc
+			byIndex[d.Index] = tc
+			order = append(order, d.Index)
+		}
+		if d.ID != "" {
+			tc.ID = d.ID
 		}
 		if d.Name != "" {
 			tc.Function.Name = d.Name
@@ -279,8 +286,9 @@ func mergeToolCallDeltas(deltas []provider.ToolCallDelta) []provider.ToolCall {
 		}
 	}
 
-	var result []provider.ToolCall
-	for _, tc := range byID {
+	result := make([]provider.ToolCall, 0, len(order))
+	for _, idx := range order {
+		tc := byIndex[idx]
 		if tc.Function.Arguments != "" {
 			json.Unmarshal([]byte(tc.Function.Arguments), &tc.Args)
 		}
