@@ -1,5 +1,7 @@
 package control
 
+import "sync"
+
 // GateMode 编辑门控模式
 type GateMode int
 
@@ -24,6 +26,7 @@ func (m GateMode) String() string {
 
 // Gate 编辑门控
 type Gate struct {
+	mu         sync.Mutex
 	mode       GateMode
 	allowlist  *Allowlist
 	pendingOps []*Operation
@@ -46,17 +49,24 @@ func NewGate(mode GateMode, allowlist *Allowlist) *Gate {
 
 // SetMode 设置门控模式
 func (g *Gate) SetMode(mode GateMode) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.mode = mode
 }
 
 // Mode 返回当前模式
 func (g *Gate) Mode() GateMode {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.mode
 }
 
 // Check 检查操作是否需要审批
 // 返回 true 表示允许执行，false 表示被拦截
 func (g *Gate) Check(toolName string, args map[string]any) (allowed bool, reason string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
 	// Yolo 模式：全部放行
 	if g.mode == ModeYolo {
 		return true, "yolo mode"
@@ -96,6 +106,8 @@ func (g *Gate) Check(toolName string, args map[string]any) (allowed bool, reason
 
 // PendingOps 返回待审批的操作列表
 func (g *Gate) PendingOps() []*Operation {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.pendingOps
 }
 

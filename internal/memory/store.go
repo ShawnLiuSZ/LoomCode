@@ -53,16 +53,25 @@ type Store struct {
 
 // NewStore 创建记忆存储
 func NewStore(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	// H24 修复：默认 ":memory:" 在连接池中每个连接是独立的数据库，
+	// 导致写入在一个连接、查询在另一个连接时读不到数据。
+	// 对内存库使用 cache=shared 并限制单连接，保证所有操作落在同一个共享内存库。
+	openPath := path
+	if path == ":memory:" {
+		openPath = "file::memory:?cache=shared"
+	}
+
+	db, err := sql.Open("sqlite", openPath)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 
-	// 启用 WAL 模式 + busy_timeout
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("set WAL: %w", err)
+	// 内存共享库必须限制单连接，否则不同连接仍可能拿到独立实例。
+	if path == ":memory:" {
+		db.SetMaxOpenConns(1)
 	}
+
+	// 启用 busy_timeout（内存库无需 WAL；WAL 对 :memory: 无意义且可能报错）
 	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("set busy_timeout: %w", err)

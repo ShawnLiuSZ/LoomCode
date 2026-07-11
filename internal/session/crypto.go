@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -149,7 +150,13 @@ func (c *Crypto) EncryptSessionFile(meta Meta, messages []Message, filePath stri
 
 // DecryptSessionFile 解密会话文件
 func (c *Crypto) DecryptSessionFile(filePath string) (*Session, error) {
-	encoded, err := os.ReadFile(filePath)
+	// H14 修复：EncryptSessionFile 写入的是 filePath+".enc"，此处必须读同一路径，
+	// 否则二者不对称，永远解密不到正确的密文文件。
+	encPath := filePath
+	if !strings.HasSuffix(encPath, ".enc") {
+		encPath = filePath + ".enc"
+	}
+	encoded, err := os.ReadFile(encPath)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}

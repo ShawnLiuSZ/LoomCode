@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -40,6 +41,10 @@ func (r *Replayer) SetVerbose(verbose bool) {
 func (r *Replayer) Replay(ctx context.Context) error {
 	if r.session == nil {
 		return fmt.Errorf("no session to replay")
+	}
+	// output 为 nil 时默认输出到标准输出，避免向 nil io.Writer 写导致 panic。
+	if r.output == nil {
+		r.output = os.Stdout
 	}
 
 	r.writeHeader()
@@ -169,7 +174,7 @@ func ReplaySession(ctx context.Context, session *Session, opts *ReplayOptions) e
 		}
 	}
 
-	replayer := NewReplayer(session, nil)
+	replayer := NewReplayer(session, os.Stdout)
 	replayer.SetDelay(opts.Delay)
 	replayer.SetVerbose(opts.Verbose)
 

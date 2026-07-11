@@ -285,13 +285,23 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 	go func() {
 		defer close(textCh)
 		defer close(errCh)
+		// H19 修复：防止流式 goroutine 因 panic 泄漏通道/goroutine，确保 defer close 一定执行。
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("stream panic: %v", r)
+			}
+		}()
 
 		a.initMessages(task)
 
 		for step := 0; step < a.maxSteps; step++ {
 			select {
 			case <-ctx.Done():
-				errCh <- ctx.Err()
+				// H19 修复：ctx 取消时带保护发送，避免消费者已退出导致阻塞。
+				select {
+				case errCh <- ctx.Err():
+				default:
+				}
 				return
 			default:
 			}
@@ -336,7 +346,12 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 					}
 					// 只显示实际内容给用户，不显示推理过程
 					if event.Content != "" {
-						textCh <- event.Content
+						// H19 修复：消费者退出时 ctx 取消，带保护的发送避免永久阻塞。
+						select {
+						case textCh <- event.Content:
+						case <-ctx.Done():
+							return
+						}
 					}
 				case provider.EventToolCall:
 					if event.ToolCall != nil {
@@ -347,7 +362,10 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 						lastUsage = event.Usage
 					}
 				case provider.EventError:
-					errCh <- fmt.Errorf("stream error: %s", event.Content)
+					select {
+					case errCh <- fmt.Errorf("stream error: %s", event.Content):
+					case <-ctx.Done():
+					}
 					return
 				}
 			}
@@ -368,14 +386,20 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 				if a.fingerprint != nil {
 					a.fingerprint.RecordResponse(int64(lastUsage.CachedInputTokens))
 				}
-				if a.onCost != nil {
-					cost := a.provider.Cost(a.model, *lastUsage)
-					a.onCost(cost.TotalCost)
-					a.costAccumulated += cost.TotalCost
-					if a.costBudget > 0 && a.costAccumulated >= a.costBudget && a.onBudgetExceeded != nil {
+			if a.onCost != nil {
+				cost := a.provider.Cost(a.model, *lastUsage)
+				a.onCost(cost.TotalCost)
+				a.costAccumulated += cost.TotalCost
+				if a.costBudget > 0 && a.costAccumulated >= a.costBudget {
+					if a.onBudgetExceeded != nil {
 						a.onBudgetExceeded()
 					}
+					// H10 修复：成本超预算后必须终止流式推理循环。
+					errCh <- fmt.Errorf("cost budget exceeded: accumulated %.4f >= budget %.4f",
+						a.costAccumulated, a.costBudget)
+					return
 				}
+			}
 			}
 
 			// 合并工具调用增量
@@ -522,8 +546,13 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			cost := a.provider.Cost(a.model, resp.Usage)
 			a.onCost(cost.TotalCost)
 			a.costAccumulated += cost.TotalCost
-			if a.costBudget > 0 && a.costAccumulated >= a.costBudget && a.onBudgetExceeded != nil {
-				a.onBudgetExceeded()
+			if a.costBudget > 0 && a.costAccumulated >= a.costBudget {
+				if a.onBudgetExceeded != nil {
+					a.onBudgetExceeded()
+				}
+				// H10 修复：成本超预算后必须终止推理循环，否则会继续烧钱。
+				return "", fmt.Errorf("cost budget exceeded: accumulated %.4f >= budget %.4f",
+					a.costAccumulated, a.costBudget)
 			}
 		}
 

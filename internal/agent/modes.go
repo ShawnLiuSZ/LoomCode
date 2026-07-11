@@ -479,16 +479,29 @@ func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candid
 	}
 
 	choice := strings.TrimSpace(resp.Content)
-	for _, ch := range choice {
-		if ch >= '1' && ch <= '9' {
-			idx := int(ch - '1')
-			if idx < len(candidates) && candidates[idx] != "" && !strings.HasPrefix(candidates[idx], "[error:") {
-				return candidates[idx], nil
-			}
-			return "", fmt.Errorf("judge selected candidate %d which is empty or errored", ch-'0')
+	// H18 修复：原先只取第一个字符，无法处理多位数选择（如 "10"）。
+	// 现提取连续数字串并整体解析，且校验范围。
+	digits := strings.TrimLeft(strings.TrimRight(choice, "."), "#")
+	var numStr strings.Builder
+	for _, r := range digits {
+		if r >= '0' && r <= '9' {
+			numStr.WriteRune(r)
+		} else {
+			break
 		}
 	}
-	return "", fmt.Errorf("judge returned invalid response: %q", choice)
+	if numStr.Len() == 0 {
+		return "", fmt.Errorf("judge returned invalid response: %q", choice)
+	}
+	idx := 0
+	for _, r := range numStr.String() {
+		idx = idx*10 + int(r-'0')
+	}
+	idx-- // 模型返回的是 1-based 编号
+	if idx >= 0 && idx < len(candidates) && candidates[idx] != "" && !strings.HasPrefix(candidates[idx], "[error:") {
+		return candidates[idx], nil
+	}
+	return "", fmt.Errorf("judge selected candidate %d (out of %d) which is empty, errored or out of range", idx+1, len(candidates))
 }
 
 // buildPlanPrompt Plan 模式系统提示

@@ -194,7 +194,9 @@ func (a *Agent) compactMessages(ctx context.Context, ctxWindow int) {
 	// 在丢弃旧消息前归档，便于事后追溯；失败仅告警，不影响压缩流程。
 	a.archiveDroppedMessages(start, cut)
 
-	rebuilt := make([]provider.Message, 0, len(a.messages)-(cut-start)+start)
+	// H22 修复：容量需 +1，因为下面会额外插入一条 summary system 消息；
+	// 原公式 len-(cut-start)+start 少算 1，导致 append 时触发一次扩容重新分配。
+	rebuilt := make([]provider.Message, 0, len(a.messages)-(cut-start)+start+1)
 	// 保留所有前导 system 消息（静态 + 动态），维持 prefix 与运行环境上下文。
 	rebuilt = append(rebuilt, a.messages[:start]...)
 	rebuilt = append(rebuilt, provider.Message{Role: "system", Content: summary})

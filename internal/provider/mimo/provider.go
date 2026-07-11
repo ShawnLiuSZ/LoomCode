@@ -137,7 +137,8 @@ func (p *MiMoProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*pr
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(respBody))
+		// H23 修复：错误响应体可能含敏感内容，仅保留截断预览。
+		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, truncateSensitive(string(respBody)))
 	}
 
 	return parseChatResponse(respBody)
@@ -166,9 +167,10 @@ func (p *MiMoProvider) Stream(ctx context.Context, req *provider.ChatRequest) (<
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// 5.4 修复：Stream 错误路径同样使用 truncateSensitive，与 Chat 保持一致。
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("api error (status %d): %s", resp.StatusCode, truncateSensitive(string(body)))
 	}
 
 	ch := make(chan provider.StreamEvent, consts.StreamChannelBufferSize)
@@ -313,4 +315,14 @@ func (p *MiMoProvider) readSSEStream(ctx context.Context, resp *http.Response, c
 
 		return content, toolCalls, usage, extra, false, nil
 	})
+}
+
+// truncateSensitive 截断可能含敏感内容的字符串，仅保留前 N 字节用于错误诊断。
+// H23 修复：避免把完整响应体（含用户输入/工具结果）写入错误字符串被日志持久化。
+func truncateSensitive(s string) string {
+	const maxLen = 200
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }

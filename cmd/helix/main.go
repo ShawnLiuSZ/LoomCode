@@ -462,6 +462,16 @@ func chatCommand() {
 	// 滚动改用键盘 PageUp/PageDown（已内置支持）。
 	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
 	app.SetProgram(program)
+
+	// 1.13 修复：捕获 SIGTERM/SIGHUP，终端关闭或 kill 时通知 TUI 保存退出，
+	// 否则对话内容丢失。Bubble Tea 的 Ctrl+C 走 KeyMsg，系统信号需单独处理。
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigCh
+		program.Send(tea.Quit())
+	}()
+
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI 运行错误: %v\n", err)
 		os.Exit(1)

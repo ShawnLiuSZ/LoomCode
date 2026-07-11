@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +68,11 @@ type Client struct {
 	maxRetries   int
 	reconnecting atomic.Bool
 
+	// 子进程生命周期 context：connect 时创建，cleanup/Close 时取消，
+	// 确保子进程（MCP server）在关闭时被杀掉，避免孤儿进程。
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
+
 	// 连接/关闭串行化锁，防止 Connect/Close/reconnect 并发竞态（L14）
 	connectMu sync.Mutex
 }
@@ -96,7 +102,9 @@ func (c *Client) Connect() error {
 
 // connect 内部连接实现
 func (c *Client) connect() error {
-	cmd := exec.Command(c.command, c.args...)
+	// 每次连接创建独立的生命周期 context，cleanup 时取消以杀掉子进程（避免孤儿进程）。
+	c.lifeCtx, c.lifeCancel = context.WithCancel(context.Background())
+	cmd := exec.CommandContext(c.lifeCtx, c.command, c.args...)
 	cmd.Env = filterEnvForSubprocess()
 	c.cmd = cmd
 
@@ -221,9 +229,15 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 	return delay - jitter
 }
 
-// cleanup 清理当前连接资源，关闭 done channel 让 readLoop 和等待者退出。
-// 可安全重复调用（第二次为 no-op）。
+// cleanup 清理当前连接资源。
+// 注意：c.done 由 readLoop 的 `defer close(c.done)` 统一关闭，这里【不要】再次 close，
+// 否则会与 readLoop 的 defer 形成 double-close → panic: close of closed channel。
+// 取消 lifeCtx 会触发 exec.CommandContext 杀掉子进程（与 Process.Kill 双保险）。
 func (c *Client) cleanup() {
+	if c.lifeCancel != nil {
+		c.lifeCancel()
+		c.lifeCancel = nil
+	}
 	if c.stdin != nil {
 		_ = c.stdin.Close()
 		c.stdin = nil
@@ -233,18 +247,16 @@ func (c *Client) cleanup() {
 		_ = c.cmd.Wait()
 		c.cmd = nil
 	}
-	// 通知所有等待 done 的 goroutine（readLoop、callRaw 中的 select）
-	// 用 recover 防止重复 close panic。
-	select {
-	case <-c.done:
-	default:
-		close(c.done)
-	}
 }
 
 // readLoop 后台读取循环，按 ID 路由响应
 func (c *Client) readLoop() {
-	defer close(c.done)
+	// BUG-001 修复：捕获启动时的 done channel 到局部变量。
+	// reconnect() 会重新赋值 c.done = make(chan struct{})，若直接 defer close(c.done)，
+	// 旧 readLoop goroutine 退出时会关闭【新的】done channel，导致重连后所有 callRaw
+	// 的 <-c.done 立即返回，误判为断连。关闭局部变量确保只关闭本次连接对应的旧 channel。
+	done := c.done
+	defer close(done)
 	for {
 		line, err := c.stdout.ReadBytes('\n')
 		if err != nil {

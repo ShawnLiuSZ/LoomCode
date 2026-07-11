@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -86,13 +87,14 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // isValidToken 校验请求中的 token：优先读 query param ?token=xxx，其次读 Authorization: Bearer xxx。
+// 5.1 修复：使用 subtle.ConstantTimeCompare 防止时序攻击（原 == 比较会因匹配长度差异泄露 token 前缀）。
 func (s *Server) isValidToken(r *http.Request) bool {
 	if t := r.URL.Query().Get("token"); t != "" {
-		return t == s.authToken
+		return subtle.ConstantTimeCompare([]byte(t), []byte(s.authToken)) == 1
 	}
 	if auth := r.Header.Get("Authorization"); auth != "" {
 		if len(auth) > 7 && auth[:7] == "Bearer " {
-			return auth[7:] == s.authToken
+			return subtle.ConstantTimeCompare([]byte(auth[7:]), []byte(s.authToken)) == 1
 		}
 	}
 	return false

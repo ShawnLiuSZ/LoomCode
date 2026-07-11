@@ -16,6 +16,15 @@ type WSClient struct {
 	conn *websocket.Conn
 	hub  *WSHub
 	send chan []byte
+
+	// closeOnce 保证 send channel 只被关闭一次，
+	// 避免 unregister 与 broadcast 两条路径同时 close 同一 channel → panic。
+	closeOnce sync.Once
+}
+
+// closeSend 安全地关闭 send channel（仅关闭一次）。
+func (c *WSClient) closeSend() {
+	c.closeOnce.Do(func() { close(c.send) })
 }
 
 // WSHub WebSocket 管理器
@@ -53,7 +62,7 @@ func (h *WSHub) run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				client.closeSend()
 			}
 			h.mu.Unlock()
 			log.Printf("WebSocket client disconnected: %d total", len(h.clients))
@@ -67,8 +76,10 @@ func (h *WSHub) run() {
 					// 发送缓冲区满，断开连接
 					h.mu.RUnlock()
 					h.mu.Lock()
-					delete(h.clients, client)
-					close(client.send)
+					if _, ok := h.clients[client]; ok {
+						delete(h.clients, client)
+						client.closeSend()
+					}
 					h.mu.Unlock()
 					h.mu.RLock()
 				}

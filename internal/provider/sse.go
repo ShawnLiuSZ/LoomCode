@@ -133,7 +133,8 @@ func ReadSSEStream(ctx context.Context, resp *http.Response, ch chan<- StreamEve
 	for {
 		select {
 		case <-ctx.Done():
-			ch <- StreamEvent{Type: EventError, Content: ctx.Err().Error()}
+			// H16 修复：消费者已退出时，发送 ctx 错误后返回，避免阻塞泄漏 goroutine / ResponseBody。
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventError, Content: ctx.Err().Error()})
 			return
 		default:
 		}
@@ -141,19 +142,19 @@ func ReadSSEStream(ctx context.Context, resp *http.Response, ch chan<- StreamEve
 		data, err := reader.Read()
 		if err != nil {
 			if err != io.EOF {
-				ch <- StreamEvent{Type: EventError, Content: err.Error()}
+				sendSSEEvent(ctx, ch, StreamEvent{Type: EventError, Content: err.Error()})
 			}
 			return
 		}
 
 		if IsSSEDone(data) {
-			ch <- StreamEvent{Type: EventDone}
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventDone})
 			return
 		}
 
 		content, toolCalls, usage, extra, done, err := handler(data)
 		if err != nil {
-			ch <- StreamEvent{Type: EventError, Content: err.Error()}
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventError, Content: err.Error()})
 			return
 		}
 
@@ -162,23 +163,32 @@ func ReadSSEStream(ctx context.Context, resp *http.Response, ch chan<- StreamEve
 		}
 
 		if content != "" {
-			ch <- StreamEvent{Type: EventText, Content: content}
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventText, Content: content})
 		}
 
 		// 处理 extra 字段（如 DeepSeek reasoning_content）
 		if extra != nil {
 			if reasoningContent, ok := extra["reasoning_content"].(string); ok && reasoningContent != "" {
-				ch <- StreamEvent{Type: EventText, ReasoningContent: reasoningContent}
+				sendSSEEvent(ctx, ch, StreamEvent{Type: EventText, ReasoningContent: reasoningContent})
 			}
 		}
 
 		for _, tc := range toolCalls {
-			ch <- StreamEvent{Type: EventToolCall, ToolCall: &tc}
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventToolCall, ToolCall: &tc})
 		}
 
 		if usage != nil {
-			ch <- StreamEvent{Type: EventDone, Usage: usage}
+			sendSSEEvent(ctx, ch, StreamEvent{Type: EventDone, Usage: usage})
 		}
+	}
+}
+
+// sendSSEEvent 带 ctx 取消保护的事件发送。消费者退出（ch 无接收方）或 ctx 取消时立即返回，
+// 避免 goroutine 与 HTTP response body 泄漏（H16）。
+func sendSSEEvent(ctx context.Context, ch chan<- StreamEvent, ev StreamEvent) {
+	select {
+	case ch <- ev:
+	case <-ctx.Done():
 	}
 }
 

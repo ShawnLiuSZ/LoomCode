@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"net/http"
@@ -70,6 +72,19 @@ func NewRetryableClientWithConfig(timeout time.Duration, cfg RetryConfig) *Retry
 // Do 执行请求（带重试）
 func (c *RetryableHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	var lastErr error
+
+	// 若请求体未提供 GetBody（如 bytes.NewReader），一次性读入内存并记录，
+	// 以便重试时重新发送 body。否则重试会发送空 body，导致上游返回 400。
+	if req.Body != nil && req.GetBody == nil {
+		if buf, rerr := io.ReadAll(req.Body); rerr == nil {
+			_ = req.Body.Close()
+			req.Body = io.NopCloser(bytes.NewReader(buf))
+			req.ContentLength = int64(len(buf))
+			req.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(buf)), nil
+			}
+		}
+	}
 
 	for attempt := 0; attempt <= c.config.MaxRetries; attempt++ {
 		if attempt > 0 {

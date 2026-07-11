@@ -115,12 +115,20 @@ func (s *FlattenStep) Repair(reasoning string, raw string) ([]RepairedCall, erro
 		current := unnested
 		for i, part := range parts {
 			if i == len(parts)-1 {
-				current[part] = val
-			} else {
-				if _, ok := current[part]; !ok {
-					current[part] = make(map[string]any)
+				// H17 修复：若中间节点已存在同名叶子值（如同时出现 "a.b" 与 "a.b.c"），
+				// 直接覆盖会丢失已展开的子结构；这里仅在尚未存在时赋值，保留已展开子树。
+				if _, exists := current[part]; !exists {
+					current[part] = val
 				}
-				current = current[part].(map[string]any)
+			} else {
+				// 进入（或创建）下一层 map。若已存在的值不是 map（键冲突），
+				// 用新 map 包裹，避免 current[part].(map[string]any) 类型断言 panic。
+				next, ok := current[part].(map[string]any)
+				if !ok {
+					next = make(map[string]any)
+					current[part] = next
+				}
+				current = next
 			}
 		}
 	}

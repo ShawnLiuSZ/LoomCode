@@ -2,12 +2,14 @@ package lsp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +29,10 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[int64]chan json.RawMessage
 	done      chan struct{}
+
+	// BUG-002 修复：生命周期 context，Close/异常退出时取消以杀掉子进程，避免孤儿进程。
+	lifeCtx    context.Context
+	lifeCancel context.CancelFunc
 }
 
 // ServerInfo 服务器信息
@@ -37,12 +43,17 @@ type ServerInfo struct {
 
 // NewClient 创建 LSP 客户端
 func NewClient(command string, args ...string) *Client {
-	cmd := exec.Command(command, args...)
+	// BUG-002 修复：用 CommandContext 绑定生命周期，Close 时取消 context 即可杀掉子进程，
+	// 覆盖 panic/os.Exit 等无法正常调用 Process.Kill 的场景。
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(lifeCtx, command, args...)
 	cmd.Env = filterEnvForSubprocess()
 	return &Client{
-		cmd:     cmd,
-		pending: make(map[int64]chan json.RawMessage),
-		done:    make(chan struct{}),
+		cmd:        cmd,
+		pending:    make(map[int64]chan json.RawMessage),
+		done:       make(chan struct{}),
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
 	}
 }
 
@@ -99,22 +110,26 @@ func (c *Client) Connect() error {
 func (c *Client) readLoop() {
 	defer close(c.done)
 	for {
-		headerLine, err := c.stdout.ReadString('\n')
-		if err != nil {
-			return
-		}
-
+		// L15 修复：LSP 帧格式为若干 header 行 + 一个空行 + body。
+		// 必须循环读取 header 行直到遇到空行，而不能只读一行就假定下一行是空行，
+		// 否则在 Content-Length 之外存在其它 header（如 Content-Type）时会错位解析。
 		var contentLength int
-		if _, err := fmt.Sscanf(headerLine, "Content-Length: %d", &contentLength); err != nil {
-			continue
+		for {
+			headerLine, err := c.stdout.ReadString('\n')
+			if err != nil {
+				return
+			}
+			// 去掉行尾 \r\n / \n，空行（仅 \r 或空）表示 header 结束。
+			trimmed := strings.TrimRight(headerLine, "\r\n")
+			if trimmed == "" {
+				break
+			}
+			if _, err := fmt.Sscanf(trimmed, "Content-Length: %d", &contentLength); err == nil && contentLength > 0 {
+				// 记录长度，但继续读完剩余 header 行直到空行。
+			}
 		}
 		if contentLength <= 0 {
 			continue
-		}
-
-		// 跳过 Header 与 body 之间的空行；若流断开或格式不符则退出（L15）
-		if _, err := c.stdout.ReadString('\n'); err != nil {
-			return
 		}
 
 		body := make([]byte, contentLength)
@@ -253,8 +268,14 @@ func (c *Client) sendNotification(method string, params any) {
 }
 
 // Close 关闭客户端
+// BUG-002 修复：取消生命周期 context 触发 CommandContext 杀掉子进程（与 Process.Kill 双保险），
+// 并保证可安全重复调用（lifeCancel 置 nil 后跳过）。
 func (c *Client) Close() error {
-	if c.cmd.Process != nil {
+	if c.lifeCancel != nil {
+		c.lifeCancel()
+		c.lifeCancel = nil
+	}
+	if c.cmd != nil && c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
 		_ = c.cmd.Wait()
 	}

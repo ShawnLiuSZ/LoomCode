@@ -114,6 +114,12 @@ func (s *BingSearch) Search(ctx context.Context, query string, limit int) ([]Sea
 	}
 	defer resp.Body.Close()
 
+	// H11 修复：4xx/5xx 不应静默返回空结果，否则上层误以为"无结果"。
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("bing search HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -187,6 +193,12 @@ func (s *TavilySearch) Search(ctx context.Context, query string, limit int) ([]S
 	}
 	defer resp.Body.Close()
 
+	// H11 修复：4xx/5xx 不应静默返回空结果。
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("tavily search HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
@@ -246,6 +258,12 @@ func (s *SearXNGSearch) Search(ctx context.Context, query string, limit int) ([]
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	// H11 修复：4xx/5xx 不应静默返回空结果。
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("searxng search HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

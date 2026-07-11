@@ -86,7 +86,16 @@ func (m *Manager) Create(name, model, provider string) *Session {
 	m.activeID = id
 
 	if err := s.saveMeta(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: save session meta %s: %v\n", id, err)
+		// H21 修复：会话元信息持久化失败是致命的——若继续使用该会话，
+		// 后续 appendToFile 会在没有有效 meta 头（loadFromFile 期望第一行是 meta）的
+		// 文件上追加，导致会话再也无法被正确加载。这里回滚注册并返回 nil，
+		// 让调用方感知到创建失败。
+		delete(m.sessions, id)
+		if m.activeID == id {
+			m.activeID = ""
+		}
+		fmt.Fprintf(os.Stderr, "error: create session %s failed to persist meta: %v\n", id, err)
+		return nil
 	}
 
 	return s
@@ -240,9 +249,18 @@ func (s *Session) saveMeta() error {
 	if err := encoder.Encode(s.Meta); err != nil {
 		return err
 	}
+	// H12 修复：rename 前先 fsync，确保元数据落盘（崩溃恢复时不丢 meta）。
+	if err := f.Sync(); err != nil {
+		return err
+	}
 	f.Close()
 
-	return os.Rename(tmpPath, s.filePath)
+	if err := os.Rename(tmpPath, s.filePath); err != nil {
+		return err
+	}
+	// fsync 目录，确保 rename 本身持久化。
+	syncDir(filepath.Dir(s.filePath))
+	return nil
 }
 
 // saveAll 完整保存（元数据 + 所有消息）
@@ -272,9 +290,18 @@ func (s *Session) saveAll() error {
 		}
 	}
 
+	// H12 修复：rename 前先 fsync，确保全部消息落盘。
+	if err := f.Sync(); err != nil {
+		return err
+	}
 	f.Close()
 
-	return os.Rename(tmpPath, s.filePath)
+	if err := os.Rename(tmpPath, s.filePath); err != nil {
+		return err
+	}
+	// fsync 目录，确保 rename 本身持久化。
+	syncDir(filepath.Dir(s.filePath))
+	return nil
 }
 
 // appendToFile 追加消息
@@ -289,6 +316,25 @@ func (m *Manager) appendToFile(s *Session, msg Message) {
 	encoder := json.NewEncoder(f)
 	if err := encoder.Encode(msg); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: encode message to %s: %v\n", s.filePath, err)
+		return
+	}
+	// H12 修复：追加写后 fsync，确保消息落盘（崩溃恢复时会话不丢本轮交互）。
+	if err := f.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: fsync session file %s: %v\n", s.filePath, err)
+	}
+}
+
+// syncDir fsync 目录，确保其中的 rename/创建操作已持久化（崩溃安全）。
+// 失败时仅告警，不阻断主流程。
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: open dir %s for fsync: %v\n", dir, err)
+		return
+	}
+	defer d.Close()
+	if err := d.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: fsync dir %s: %v\n", dir, err)
 	}
 }
 
@@ -341,8 +387,10 @@ func loadFromFile(path string) (*Session, error) {
 		lineNum++
 		var msg Message
 		if err := decoder.Decode(&msg); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: %s line %d: %v\n", path, lineNum, err)
-			break
+			// H13 修复：单行损坏不应丢弃后续所有消息。
+			// JSONL 每行是独立的完整 JSON 值，跳过损坏行后 Decode 会重新对齐到下一行。
+			fmt.Fprintf(os.Stderr, "warning: %s line %d: %v (skipped)\n", path, lineNum, err)
+			continue
 		}
 		messages = append(messages, msg)
 	}

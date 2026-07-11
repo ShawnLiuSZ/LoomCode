@@ -87,15 +87,28 @@ func TestCtrlCQuits(t *testing.T) {
 	app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	var m tea.Model = app
+	// 1.12 修复：Ctrl+C 需要二次确认。第一次按显示提示，不退出。
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-
 	result := m.(*App)
-	if !result.quitting {
-		t.Error("expected quitting to be true after ctrl+c")
+	if result.quitting {
+		t.Error("expected quitting to be false after first ctrl+c (confirm required)")
 	}
-	// cmd should be tea.Quit
+	if result.confirmQuit != true {
+		t.Error("expected confirmQuit to be true after first ctrl+c")
+	}
+	// 第一次 Ctrl+C 应返回 Tick 命令（3 秒重置），而非 tea.Quit
 	if cmd == nil {
-		t.Error("expected a quit command")
+		t.Error("expected a tick command after first ctrl+c")
+	}
+
+	// 第二次按 Ctrl+C 确认退出
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	result = m.(*App)
+	if !result.quitting {
+		t.Error("expected quitting to be true after second ctrl+c")
+	}
+	if cmd == nil {
+		t.Error("expected a quit command after second ctrl+c")
 	}
 }
 

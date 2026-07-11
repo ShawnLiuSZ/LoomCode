@@ -29,6 +29,7 @@ type SubAgent struct {
 	err        error
 	mu         sync.Mutex
 	done       chan struct{}
+	started    bool
 	finishedAt time.Time
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -237,6 +238,7 @@ func (sa *SubAgent) Run(task string) {
 		return
 	}
 	sa.status = StatusRunning
+	sa.started = true
 	sa.mu.Unlock()
 
 	go func() {
@@ -292,8 +294,17 @@ func (m *SubAgentManager) RunParallel(tasks map[string]string) map[string]string
 	wg.Wait()
 
 	if m.bus != nil {
-		var allMsgs []BusMessage
+		// 必须在锁保护下快照 agents：RunParallel 内部会调用 m.Cleanup()，
+		// 而 spawn/Cleanup 都会在 m.mu 下修改 m.agents（map 并发读写会 panic）。
+		m.mu.RLock()
+		snapshot := make([]*SubAgent, 0, len(m.agents))
 		for _, sa := range m.agents {
+			snapshot = append(snapshot, sa)
+		}
+		m.mu.RUnlock()
+
+		var allMsgs []BusMessage
+		for _, sa := range snapshot {
 			ch := sa.Messages()
 			if ch == nil {
 				continue
@@ -328,7 +339,15 @@ func (m *SubAgentManager) RunParallel(tasks map[string]string) map[string]string
 }
 
 // Wait 等待子 Agent 完成
+// 若 Run 是 no-op（非 Pending 状态，goroutine 未启动），done 永远不会被 close，
+// 直接阻塞会导致死锁。已启程则等待 done；未启程则立即返回。
 func (sa *SubAgent) Wait() {
+	sa.mu.Lock()
+	started := sa.started
+	sa.mu.Unlock()
+	if !started {
+		return
+	}
 	<-sa.done
 }
 

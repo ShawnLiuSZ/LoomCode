@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,26 +15,31 @@ import (
 // 1. ~/.helix/.env（全局）
 // 2. ./.env（项目）
 // 3. ./.env.local（项目本地，不提交）
+//
+// 5.5 修复：不再始终返回 nil。收集所有非 IsNotExist 的加载错误，
+// 聚合后返回，让调用方能感知配置加载失败。
 func LoadEnvFiles(projectDir string) error {
+	var errs []error
+
 	home, err := os.UserHomeDir()
 	if err == nil {
 		globalPath := filepath.Join(home, ".helix", ".env")
 		if err := loadEnvFile(globalPath); err != nil && !os.IsNotExist(err) {
-			log.Printf("Warning: failed to load global .env: %v", err)
+			errs = append(errs, fmt.Errorf("global .env (%s): %w", globalPath, err))
 		}
 	}
 
 	projectPath := filepath.Join(projectDir, ".env")
 	if err := loadEnvFile(projectPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: failed to load project .env: %v", err)
+		errs = append(errs, fmt.Errorf("project .env (%s): %w", projectPath, err))
 	}
 
 	localPath := filepath.Join(projectDir, ".env.local")
 	if err := loadEnvFile(localPath); err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: failed to load local .env: %v", err)
+		errs = append(errs, fmt.Errorf("local .env (%s): %w", localPath, err))
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // LoadEnvFile 加载指定路径的 .env 文件

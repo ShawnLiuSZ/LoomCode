@@ -126,6 +126,13 @@ type App struct {
 	// Markdown renderer
 	glamourRenderer *glamour.TermRenderer
 
+	// 终端背景色（true=深色，false=亮色），影响 glamour style 选择
+	hasDarkBackground bool
+
+	// Ctrl+C 二次确认退出（1.12）
+	confirmQuit     bool
+	confirmQuitTime time.Time
+
 	// 渲染缓存（消息内容 → 渲染结果）
 	renderCache map[string]string
 }
@@ -152,6 +159,9 @@ type pendingWrite struct {
 }
 
 type approvalMsg struct{}
+
+// confirmQuitResetMsg 3 秒后重置 Ctrl+C 二次确认状态
+type confirmQuitResetMsg struct{}
 
 // 所有可用命令
 var allCommands = []string{
@@ -221,7 +231,7 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	ta.Cursor.Style = lipgloss.NewStyle().Background(lipgloss.Color("7"))
 	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0"))
 
-	// 创建 glamour renderer
+	// 创建 glamour renderer（1.3：背景色在 Init 中检测，此处先默认深色，WindowSizeMsg 时按实际更新）
 	renderer, _ := glamour.NewTermRenderer(
 		glamour.WithStandardStyle(glamourstyles.DarkStyle),
 		glamour.WithWordWrap(80),
@@ -311,6 +321,9 @@ func (a *App) AddApprovalGuard(perm *control.Permission) {
 			pw.newContent, _ = tc.Args["new_text"].(string)
 		}
 		if a.program != nil {
+			// 必须先把 pw 挂到 a.pendingApproval，handleKey 才会往 pw.decision 喂值；
+			// 否则下方 <-pw.decision 会永久阻塞，导致 TUI 卡死。
+			a.pendingApproval = pw
 			a.program.Send(approvalMsg{})
 		}
 		if <-pw.decision {
@@ -373,6 +386,10 @@ func (a *App) saveSession() {
 			return
 		}
 		a.activeSess = a.sessionMgr.Create("default", a.model, a.provider.Name())
+		if a.activeSess == nil {
+			// 会话创建失败（元信息持久化失败），中止本次保存以免后续追加到无效文件。
+			return
+		}
 	}
 	// 只保存新消息（上次保存之后的）
 	for i := a.savedMsgCount; i < len(a.messages); i++ {
@@ -429,8 +446,18 @@ func (a *App) RestoreSession(sess *session.Session) {
 }
 
 func (a *App) Init() tea.Cmd {
-	// 强制设置深色背景，避免 OSC 11 查询导致的渲染泄漏
-	lipgloss.SetHasDarkBackground(true)
+	// 1.2 修复：检测终端背景色，检测失败时回退到深色（多数终端默认深色）。
+	// 不再强制 SetHasDarkBackground(true)，否则亮色终端上浅色文字不可见。
+	a.hasDarkBackground = true // 回退默认值
+	if bg := lipgloss.HasDarkBackground(); bg {
+		a.hasDarkBackground = true
+	} else {
+		// HasDarkBackground 返回 false 可能是"确认亮色"也可能是"检测失败"，
+		// 这里保守地采用 true 作为回退（与原行为一致），但允许 WindowSizeMsg 再次更新。
+		// 若终端明确报告亮色（OSC 11），在此处已正确设置。
+		a.hasDarkBackground = false
+	}
+	lipgloss.SetHasDarkBackground(a.hasDarkBackground)
 	return tea.Batch(
 		textarea.Blink,
 		tea.EnterAltScreen,
@@ -446,6 +473,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 
+		// 1.4 修复：最小终端尺寸检查，防止 height-8 为负数导致 panic / 渲染异常。
+		if a.height < 10 || a.width < 40 {
+			// 尺寸过小时只更新尺寸，不重建 viewport/renderer（渲染会出错）
+			return a, nil
+		}
+
 		// 更新 textarea 宽度
 		a.textArea.SetWidth(msg.Width - 4)
 
@@ -460,11 +493,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.viewport.GotoBottom()
 		}
 
-		// 更新 glamour renderer
-		a.glamourRenderer, _ = glamour.NewTermRenderer(
-			glamour.WithStandardStyle(glamourstyles.DarkStyle),
-			glamour.WithWordWrap(msg.Width-4),
-		)
+		// 更新 glamour renderer（1.3：按实际背景色选择 style）
+		a.glamourRenderer = a.newGlamourRenderer(msg.Width - 4)
+
+		// 1.9 修复：窗口缩放后渲染缓存按旧宽度渲染，必须清空。
+		a.renderCache = make(map[string]string)
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
@@ -509,6 +542,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalMsg:
 		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
 		a.viewport.GotoBottom()
+		return a, nil
+
+	case confirmQuitResetMsg:
+		// 1.12：3 秒超时后重置 Ctrl+C 二次确认
+		a.confirmQuit = false
 		return a, nil
 	}
 
@@ -624,9 +662,24 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "ctrl+c":
-		a.saveSession()
-		a.quitting = true
-		return a, tea.Quit
+		// 1.12 修复：Ctrl+C 二次确认退出，防止误按丢失上下文。
+		// 首次按 Ctrl+C 显示提示，3 秒内再按一次才真正退出。
+		if a.confirmQuit {
+			a.saveSession()
+			a.quitting = true
+			return a, tea.Quit
+		}
+		a.confirmQuit = true
+		a.confirmQuitTime = time.Now()
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: "再按一次 Ctrl+C 确认退出（3 秒内有效）",
+		})
+		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		// 3 秒后自动重置 confirmQuit
+		return a, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+			return confirmQuitResetMsg{}
+		})
 
 	case "esc":
 		if a.loading && a.cancelFunc != nil {
@@ -1107,6 +1160,12 @@ func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
 				name = strings.Join(parts[2:], " ")
 			}
 			sess := a.sessionMgr.Create(name, a.model, a.provider.Name())
+			if sess == nil {
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: "创建新会话失败：无法持久化会话元信息，请检查磁盘/目录权限。",
+				})
+				break
+			}
 			a.activeSess = sess
 			a.messages = append(a.messages, chatMessage{
 				Role: "system", Content: fmt.Sprintf("已创建新会话: %s (ID: %s)", name, sess.ID),
@@ -1411,9 +1470,9 @@ func (a *App) renderWelcome() string {
 	}
 
 	tips := []string{
-		"Tips for getting started",
-		"Shift + Enter to add a new line",
-		"Press / to use commands, @ to mention files",
+		"开始使用的小提示",
+		"Shift + Enter 换行",
+		"输入 / 查看可用命令",
 		fmt.Sprintf("Model: %s/%s", a.provider.Name(), a.model),
 		fmt.Sprintf("Mode: %s", a.mode.String()),
 	}
@@ -1438,6 +1497,20 @@ func (a *App) renderWelcome() string {
 	}
 
 	return sb.String()
+}
+
+// newGlamourRenderer 根据终端背景色创建 glamour 渲染器。
+// 1.3 修复：不再硬编码 DarkStyle，亮色终端使用 LightStyle。
+func (a *App) newGlamourRenderer(width int) *glamour.TermRenderer {
+	style := glamourstyles.DarkStyle
+	if !a.hasDarkBackground {
+		style = glamourstyles.LightStyle
+	}
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithStandardStyle(style),
+		glamour.WithWordWrap(width),
+	)
+	return r
 }
 
 // renderMarkdown 用 glamour 渲染 markdown，带缓存，失败时回退到纯文本

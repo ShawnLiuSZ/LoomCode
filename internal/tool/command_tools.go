@@ -60,8 +60,9 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 		}
 	}
 
-	// 创建独立超时 context（60 秒），不依赖父 context
-	bashCtx, cancel := context.WithTimeout(context.Background(), bashTimeout)
+	// 基于传入的 ctx 派生超时：父级取消（Ctrl-C / 上游超时）会传播到子进程，
+	// 通过 cmd.Cancel 杀掉整个进程组，避免子进程泄漏。
+	bashCtx, cancel := context.WithTimeout(ctx, bashTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(bashCtx, "bash", "-c", command)
