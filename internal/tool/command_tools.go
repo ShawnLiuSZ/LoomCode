@@ -1,14 +1,18 @@
 package tool
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -65,15 +69,12 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	bashCtx, cancel := context.WithTimeout(ctx, bashTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(bashCtx, "bash", "-c", command)
+	cmd := exec.CommandContext(bashCtx, ShellName(), ShellArgs(command)...)
 	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 创建进程组
+	SetProcessGroup(cmd) // 创建进程组
 	// ctx 取消/超时时杀整个进程组（负 PID），而非仅组长，回收后台子进程，避免孤儿与 FD 泄漏。
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return KillProcessGroup(cmd)
 	}
 
 	// 使用 Pipe 限制输出大小
@@ -94,7 +95,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	// 输出超限：立即杀掉整个进程组，避免子进程写满管道阻塞导致 Wait 挂到超时。
 	truncated := len(output) >= maxOutputSize
 	if truncated && cmd.Process != nil {
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		if err := KillProcessGroup(cmd); err != nil {
 			log.Printf("kill process group: %v", err)
 		}
 	}
@@ -141,40 +142,84 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 		return nil, fmt.Errorf("pattern and path are required")
 	}
 
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex pattern: %w", err)
+	}
+
 	const maxOutputSize = 512 * 1024
 
-	cmd := exec.CommandContext(ctx, "grep", "-rn", pattern, path)
-	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 独立进程组，截断时杀负 PID 不会误杀 helix
-	stdout, err := cmd.StdoutPipe()
+	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("create pipe: %w", err)
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start grep: %w", err)
+		return nil, fmt.Errorf("stat path: %w", err)
 	}
 
-	output, _ := io.ReadAll(io.LimitReader(stdout, maxOutputSize))
-	truncated := len(output) >= maxOutputSize
-	if truncated && cmd.Process != nil {
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-			log.Printf("kill process group: %v", err)
+	var buf bytes.Buffer
+	truncated := false
+
+	// onMatch appends a match entry; returns false when output limit is reached.
+	onMatch := func(file string, lineNum int, line string) bool {
+		if buf.Len() >= maxOutputSize {
+			truncated = true
+			return false
+		}
+		entry := fmt.Sprintf("%s:%d:%s\n", file, lineNum, line)
+		if buf.Len()+len(entry) > maxOutputSize {
+			truncated = true
+			return false
+		}
+		buf.WriteString(entry)
+		return true
+	}
+
+	// searchFile scans a single file line by line for regex matches.
+	searchFile := func(p string) {
+		f, err := os.Open(p)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+
+		scanner := bufio.NewScanner(f)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		lineNum := 0
+		for scanner.Scan() {
+			if ctx.Err() != nil {
+				return
+			}
+			lineNum++
+			line := scanner.Text()
+			if re.MatchString(line) {
+				if !onMatch(p, lineNum, line) {
+					return
+				}
+			}
 		}
 	}
-	waitErr := cmd.Wait()
 
-	content := string(output)
+	if !info.IsDir() {
+		searchFile(path)
+	} else {
+		_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if d.IsDir() {
+				return nil
+			}
+			searchFile(p)
+			return nil
+		})
+	}
+
+	content := buf.String()
 	if truncated {
 		content += "\n... (output truncated at 512KB)"
 	}
-
 	if len(content) == 0 {
-		content = fmt.Sprintf("No matches found for '%s' in %s", pattern, path)
-	}
-	if waitErr != nil && !truncated && len(output) == 0 {
 		content = fmt.Sprintf("No matches found for '%s' in %s", pattern, path)
 	}
 
@@ -213,32 +258,62 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	const maxOutputSize = 512 * 1024
 
-	cmd := exec.CommandContext(ctx, "find", path, "-name", pattern, "-type", "f")
-	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // 独立进程组，截断时杀负 PID 不会误杀 helix
-	stdout, err := cmd.StdoutPipe()
+	info, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("create pipe: %w", err)
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start find: %w", err)
+		return nil, fmt.Errorf("stat path: %w", err)
 	}
 
-	output, _ := io.ReadAll(io.LimitReader(stdout, maxOutputSize))
-	truncated := len(output) >= maxOutputSize
-	if truncated && cmd.Process != nil {
-		if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-			log.Printf("kill process group: %v", err)
+	// Strip **/ prefixes so matching against the basename works
+	// (equivalent to find -name behavior).
+	matchPattern := pattern
+	for strings.HasPrefix(matchPattern, "**/") {
+		matchPattern = matchPattern[3:]
+	}
+
+	matchName := func(name string) bool {
+		matched, err := filepath.Match(matchPattern, name)
+		return err == nil && matched
+	}
+
+	var buf bytes.Buffer
+	truncated := false
+
+	addPath := func(p string) {
+		if buf.Len() >= maxOutputSize {
+			truncated = true
+			return
 		}
-	}
-	if err := cmd.Wait(); err != nil {
-		log.Printf("wait command: %v", err)
+		line := p + "\n"
+		if buf.Len()+len(line) > maxOutputSize {
+			truncated = true
+			return
+		}
+		buf.WriteString(line)
 	}
 
-	content := strings.TrimSpace(string(output))
+	if !info.IsDir() {
+		if matchName(filepath.Base(path)) {
+			addPath(path)
+		}
+	} else {
+		_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if matchName(filepath.Base(p)) {
+				addPath(p)
+			}
+			return nil
+		})
+	}
+
+	content := strings.TrimSpace(buf.String())
 	if truncated {
 		content += "\n... (output truncated at 512KB)"
 	}

@@ -122,9 +122,10 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 
 // WriteFileTool 写入文件工具
 type WriteFileTool struct {
-	root       string
-	permission PermissionChecker
-	diagnoser  Diagnoser
+	root          string
+	permission    PermissionChecker
+	diagnoser     Diagnoser
+	checkpointMgr *CheckpointManager
 }
 
 // SetRoot 设置 workspace 根目录（路径限制）
@@ -135,6 +136,9 @@ func (t *WriteFileTool) SetPermissionChecker(checker PermissionChecker) { t.perm
 
 // SetDiagnoser 设置写入后诊断器（可选，nil 时不诊断）
 func (t *WriteFileTool) SetDiagnoser(d Diagnoser) { t.diagnoser = d }
+
+// SetCheckpointManager 注入快照管理器，启用后在写文件前自动创建快照。
+func (t *WriteFileTool) SetCheckpointManager(m *CheckpointManager) { t.checkpointMgr = m }
 
 func (t *WriteFileTool) diagnose(ctx context.Context, path string) string {
 	return runDiagnoser(t.diagnoser, ctx, path)
@@ -169,6 +173,14 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) (*Resu
 		}
 	}
 
+	// 写入前创建快照（如果已配置检查点管理器）
+	if t.checkpointMgr != nil {
+		if _, err := t.checkpointMgr.Snapshot(abs, "write_file"); err != nil {
+			// 快照失败不阻断写入，仅告警
+			fmt.Fprintf(os.Stderr, "warning: checkpoint snapshot: %v\n", err)
+		}
+	}
+
 	if err := os.WriteFile(abs, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("write file %q: %w", path, err)
 	}
@@ -178,9 +190,10 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) (*Resu
 
 // EditFileTool 精确编辑文件工具
 type EditFileTool struct {
-	root       string
-	permission PermissionChecker
-	diagnoser  Diagnoser
+	root          string
+	permission    PermissionChecker
+	diagnoser     Diagnoser
+	checkpointMgr *CheckpointManager
 }
 
 // SetRoot 设置 workspace 根目录（路径限制）
@@ -191,6 +204,9 @@ func (t *EditFileTool) SetPermissionChecker(checker PermissionChecker) { t.permi
 
 // SetDiagnoser 设置编辑后诊断器（可选，nil 时不诊断）
 func (t *EditFileTool) SetDiagnoser(d Diagnoser) { t.diagnoser = d }
+
+// SetCheckpointManager 注入快照管理器，启用后在编辑文件前自动创建快照。
+func (t *EditFileTool) SetCheckpointManager(m *CheckpointManager) { t.checkpointMgr = m }
 
 func (t *EditFileTool) diagnose(ctx context.Context, path string) string {
 	return runDiagnoser(t.diagnoser, ctx, path)
@@ -253,6 +269,13 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 		n = -1
 	}
 	newContent := strings.Replace(content, oldText, newText, n)
+
+	// 编辑前创建快照（如果已配置检查点管理器）
+	if t.checkpointMgr != nil {
+		if _, err := t.checkpointMgr.Snapshot(abs, "edit_file"); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: checkpoint snapshot: %v\n", err)
+		}
+	}
 
 	if err := os.WriteFile(abs, []byte(newContent), 0644); err != nil {
 		return nil, fmt.Errorf("write file %q: %w", path, err)

@@ -83,9 +83,12 @@ func main() {
 		chatCommand()
 	case "dashboard":
 		dashboardCommand(args[1:])
+	case "schema":
+		fmt.Println(config.GenerateJSONSchema())
+		return
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "Available commands: run, setup, chat, dashboard")
+		fmt.Fprintln(os.Stderr, "Available commands: run, setup, chat, dashboard, schema")
 		os.Exit(1)
 	}
 }
@@ -134,7 +137,7 @@ func runCommand(args []string) {
 
 	// 注入命令沙箱与文件护栏权限检查器
 	perm := control.NewPermission(control.ModeAuto)
-	configureToolPermissions(tools, perm)
+	configureToolPermissions(tools, perm, nil) // run 模式不启用快照
 
 	// 连接配置的 MCP 插件（stdio/SSE）
 	pm := connectPlugins(context.Background(), cfg.Plugins, tools)
@@ -166,33 +169,42 @@ func runCommand(args []string) {
 }
 
 func setupCommand() {
-	fmt.Println("Helix CLI Setup")
-	fmt.Println("===============")
+	fmt.Println("Helix CLI 配置向导")
+	fmt.Println("=================")
 	fmt.Println()
 
-	// 创建 .env 模板
-	cwd, _ := os.Getwd()
-	if err := config.CreateEnvTemplate(cwd); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create .env template: %v\n", err)
+	w := config.NewWizard()
+	cfg, envVars, err := w.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "配置失败: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 写入 helix.toml
+	if err := config.WriteConfig(cfg, "helix.toml"); err != nil {
+		fmt.Fprintf(os.Stderr, "写入 helix.toml 失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("✓ helix.toml 已生成")
+
+	// 写入 .env（已存在则追加）
+	if err := config.WriteEnvFile(envVars, ".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "写入 .env 失败: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("✓ .env 已生成")
+
+	// 写出 JSON Schema 供编辑器自动补全/校验
+	if schemaPath, err := config.WriteSchemaFile(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not write schema file: %v\n", err)
 	} else {
-		if _, err := os.Stat(cwd + "/.env"); err == nil {
-			fmt.Println(".env template created. Edit it to add your API keys.")
-		}
+		fmt.Printf("✓ 配置 Schema 已生成: %s\n", schemaPath)
 	}
 
 	fmt.Println()
-	fmt.Println("To configure Helix, create a helix.toml file in your project directory.")
-	fmt.Println()
-	fmt.Println("Example:")
-	fmt.Println()
-	fmt.Println("  cp helix.example.toml helix.toml")
-	fmt.Println("  # Edit helix.toml to add your API keys")
-	fmt.Println()
-	fmt.Println("Or set environment variables in .env:")
-	fmt.Println()
-	fmt.Println("  DEEPSEEK_API_KEY=sk-...")
-	fmt.Println()
-	fmt.Println("Run 'helix run \"hello\"' to test your setup.")
+	fmt.Println("配置完成！运行以下命令开始:")
+	fmt.Println("  helix chat        # 启动交互式 TUI")
+	fmt.Println("  helix run \"hello\" # 运行单个任务")
 }
 
 func loadConfig() (*config.Config, error) {
@@ -241,7 +253,8 @@ func connectPlugins(ctx context.Context, plugins []config.PluginConfig, tools *t
 
 // configureToolPermissions 给文件工具与 bash 接入权限护栏（C2），
 // 并按"工作区内放行"模型配置 Auto 模式的默认白名单（H6）。
-func configureToolPermissions(tools *tool.Registry, perm *control.Permission) {
+// cpMgr 非空时注入到写文件/编辑文件工具，启用编辑快照安全网。
+func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cpMgr *tool.CheckpointManager) {
 	cwd, err := os.Getwd()
 	if err != nil || cwd == "" {
 		cwd = "."
@@ -271,6 +284,9 @@ func configureToolPermissions(tools *tool.Registry, perm *control.Permission) {
 			ft.SetRoot(cwd)
 			ft.SetPermissionChecker(perm)
 			ft.SetDiagnoser(tool.GoDiagnoser{})
+			if cpMgr != nil {
+				ft.SetCheckpointManager(cpMgr)
+			}
 		}
 	}
 	if t, ok := tools.Get("edit_file"); ok {
@@ -278,6 +294,9 @@ func configureToolPermissions(tools *tool.Registry, perm *control.Permission) {
 			ft.SetRoot(cwd)
 			ft.SetPermissionChecker(perm)
 			ft.SetDiagnoser(tool.GoDiagnoser{})
+			if cpMgr != nil {
+				ft.SetCheckpointManager(cpMgr)
+			}
 		}
 	}
 }
@@ -409,9 +428,10 @@ func chatCommand() {
 	tools := tool.NewRegistry()
 	tools.RegisterDefaults()
 
-	// 注入命令沙箱与文件护栏权限检查器
+	// 注入命令沙箱与文件护栏权限检查器 + 编辑快照安全网
 	perm := control.NewPermission(control.ModeAuto)
-	configureToolPermissions(tools, perm)
+	cpMgr := tool.NewCheckpointManager("") // chat 模式启用快照
+	configureToolPermissions(tools, perm, cpMgr)
 
 	// 连接配置的 MCP 插件（stdio/SSE）
 	chatPM := connectPlugins(context.Background(), cfg.Plugins, tools)
@@ -437,6 +457,7 @@ func chatCommand() {
 	app.SetModel(selectModel(provCfg))
 	app.SetProviders(allProviders)
 	app.AddApprovalGuard(perm)
+	app.SetCheckpointManager(cpMgr)
 
 	hm := tool.NewHookManager()
 	registerAutoFormatHook(hm)
@@ -463,7 +484,7 @@ func chatCommand() {
 		}
 	}
 
-// 不启用 WithMouseCellMotion：它会接管终端的文本选择，导致无法用鼠标复制内容。
+	// 不启用 WithMouseCellMotion：它会接管终端的文本选择，导致无法用鼠标复制内容。
 	// 滚动改用键盘 PageUp/PageDown（已内置支持）。
 	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
 	app.SetProgram(program)
@@ -514,6 +535,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  helix [options] setup          Run configuration wizard\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] chat           Interactive TUI\n")
 	fmt.Fprintf(os.Stderr, "  helix [options] dashboard      Start web dashboard\n")
+	fmt.Fprintf(os.Stderr, "  helix [options] schema         Print JSON Schema for helix.toml\n")
 	fmt.Fprintf(os.Stderr, "  helix [options]                Start interactive TUI (default)\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  helix                                    Start TUI\n")

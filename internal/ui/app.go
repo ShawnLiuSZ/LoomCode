@@ -135,6 +135,9 @@ type App struct {
 
 	// 渲染缓存（消息内容 → 渲染结果）
 	renderCache map[string]string
+
+	// 编辑快照管理器（/rewind 回退安全网）
+	checkpointMgr *tool.CheckpointManager
 }
 
 type chatMessage struct {
@@ -290,6 +293,9 @@ func (a *App) SetModel(m string)                      { a.model = m; a.agent.Set
 func (a *App) SetWorkDir(d string)                    { a.agent.SetWorkDir(d) }
 func (a *App) SetProgram(p *tea.Program)              { a.program = p }
 func (a *App) SetHooks(hm *tool.HookManager)          { a.agent.SetHooks(hm) }
+
+// SetCheckpointManager 注入编辑快照管理器，启用 /rewind 回退安全网。
+func (a *App) SetCheckpointManager(mgr *tool.CheckpointManager) { a.checkpointMgr = mgr }
 
 // SetEventLog 注入 agent EventLog,用于在状态栏显示 prefix cache 命中率。
 // 传入 nil 则不显示 cache 字段。
@@ -817,6 +823,7 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
   /compact   压缩上下文历史
   /remember  记住一条项目事实(下次会话自动注入)
   /env       环境变量管理
+  /rewind    查看/恢复文件编辑快照
   /sessions  会话列表
   /queue     查看任务队列
   /quit      退出
@@ -929,6 +936,9 @@ Budget:
 
 	case "/env":
 		return a.handleEnvCommand(parts)
+
+	case "/rewind":
+		return a.handleRewindCmd(parts)
 
 	default:
 		a.messages = append(a.messages, chatMessage{
@@ -1881,6 +1891,45 @@ func (a *App) showEnvVars() (tea.Model, tea.Cmd) {
 		sb.WriteString(fmt.Sprintf("  %s = %s\n", key, val))
 	}
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+	return a, nil
+}
+
+// handleRewindCmd 处理 /rewind 命令，支持查看快照列表和恢复指定快照。
+func (a *App) handleRewindCmd(parts []string) (tea.Model, tea.Cmd) {
+	if a.checkpointMgr == nil {
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: "快照管理器未启用。"})
+		return a, nil
+	}
+
+	// /rewind — 列出最近快照
+	if len(parts) < 2 {
+		checkpoints, err := a.checkpointMgr.List("", 20)
+		if err != nil {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("读取快照失败: %v", err)})
+			return a, nil
+		}
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: tool.FormatCheckpointSummary(checkpoints)})
+		return a, nil
+	}
+
+	// /rewind last — 恢复最近一个快照
+	if parts[1] == "last" {
+		cp, err := a.checkpointMgr.RestoreLast()
+		if err != nil {
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("恢复失败: %v", err)})
+			return a, nil
+		}
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("✓ 已恢复最近快照 [%s]，文件: %s", cp.ID, cp.OriginalPath)})
+		return a, nil
+	}
+
+	// /rewind <ID> — 恢复指定快照
+	cpID := parts[1]
+	if err := a.checkpointMgr.Restore(cpID); err != nil {
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("恢复失败: %v", err)})
+		return a, nil
+	}
+	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("✓ 已恢复快照 [%s]", cpID)})
 	return a, nil
 }
 

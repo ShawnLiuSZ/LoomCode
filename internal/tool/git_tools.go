@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"syscall"
 )
 
 const gitOutputLimit = 32 * 1024
@@ -130,12 +129,9 @@ func (t *GitStatusTool) runGit(ctx context.Context, args ...string) (string, err
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	SetProcessGroup(cmd)
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return KillProcessGroup(cmd)
 	}
 
 	out, err := cmd.Output()
@@ -240,12 +236,9 @@ func (t *GitDiffTool) runGit(ctx context.Context, args ...string) (string, error
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	SetProcessGroup(cmd)
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return KillProcessGroup(cmd)
 	}
 
 	out, err := cmd.Output()
@@ -347,12 +340,9 @@ func (t *GitLogTool) runGit(ctx context.Context, args ...string) (string, error)
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	SetProcessGroup(cmd)
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return KillProcessGroup(cmd)
 	}
 
 	out, err := cmd.Output()
@@ -435,12 +425,9 @@ func (t *GitCommitTool) runGit(ctx context.Context, args ...string) (string, err
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	cmd.Env = EnvForSubprocess()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	SetProcessGroup(cmd)
 	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
+		return KillProcessGroup(cmd)
 	}
 
 	out, err := cmd.CombinedOutput()

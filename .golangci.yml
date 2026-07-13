@@ -1,31 +1,30 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
     - unused
-
-linters-settings:
-  errcheck:
-    # 排除常见“无恢复意义”或调用方无法合理处理的错误返回值，
-    # 减少 lint 噪音，同时保留对核心业务逻辑的错误检查。
-    exclude-functions:
-      - (*database/sql.Rows).Close
-      - (*database/sql.DB).Close
-      - (*github.com/gorilla/websocket.Conn).Close
-      - (*github.com/gorilla/websocket.Conn).SetWriteDeadline
-      - (*github.com/gorilla/websocket.Conn).SetReadDeadline
-      - (io.Closer).Close
-      - (*os.File).Close
-
-issues:
-  exclude-rules:
-    # 测试文件中的 errcheck 通常不影响生产行为，排除以减少噪音
-    - path: _test\.go
-      linters:
-        - errcheck
+  settings:
+    errcheck:
+      # 排除常见“无恢复意义”或调用方无法合理处理的错误返回值，
+      # 减少 lint 噪音，同时保留对核心业务逻辑的错误检查。
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*github.com/gorilla/websocket.Conn).Close
+        - (*github.com/gorilla/websocket.Conn).SetWriteDeadline
+        - (*github.com/gorilla/websocket.Conn).SetReadDeadline
+        - (io.Closer).Close
+        - (*os.File).Close
+  exclusions:
+    rules:
+      # 测试文件中的 errcheck 通常不影响生产行为，排除以减少噪音
+      - path: _test\.go
+        linters:
+          - errcheck
