@@ -230,8 +230,9 @@ func (c *Client) retryDelay(attempt int) time.Duration {
 }
 
 // cleanup 清理当前连接资源。
-// 注意：c.done 由 readLoop 的 `defer close(c.done)` 统一关闭，这里【不要】再次 close，
-// 否则会与 readLoop 的 defer 形成 double-close → panic: close of closed channel。
+// 注意：c.done 由 readLoop 捕获局部变量后 `defer close(done)` 统一关闭（BUG-001 修复：
+// 必须捕获局部变量，否则 reconnect() 重建 c.done 后，旧 readLoop 会误关新的 done channel）。
+// 这里【不要】再次 close，否则会与 readLoop 的 defer 形成 double-close → panic: close of closed channel。
 // 取消 lifeCtx 会触发 exec.CommandContext 杀掉子进程（与 Process.Kill 双保险）。
 func (c *Client) cleanup() {
 	if c.lifeCancel != nil {
