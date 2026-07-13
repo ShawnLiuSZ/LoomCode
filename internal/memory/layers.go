@@ -97,7 +97,7 @@ func (m *Manager) BuildContextPrompt() string {
 	if err == nil && len(projectMemories) > 0 {
 		sb.WriteString("## Project Knowledge\n\n")
 		for _, entry := range projectMemories {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", entry.Key, entry.Content))
+			fmt.Fprintf(&sb, "- **%s**: %s\n", entry.Key, entry.Content)
 		}
 		sb.WriteString("\n")
 	}
@@ -107,7 +107,7 @@ func (m *Manager) BuildContextPrompt() string {
 	if err == nil && len(globalPrefs) > 0 {
 		sb.WriteString("## User Preferences\n\n")
 		for _, entry := range globalPrefs {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s\n", entry.Key, entry.Content))
+			fmt.Fprintf(&sb, "- **%s**: %s\n", entry.Key, entry.Content)
 		}
 		sb.WriteString("\n")
 	}

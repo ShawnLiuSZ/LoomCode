@@ -73,13 +73,13 @@ func NewStore(path string) (*Store, error) {
 
 	// 启用 busy_timeout（内存库无需 WAL；WAL 对 :memory: 无意义且可能报错）
 	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("set busy_timeout: %w", err)
 	}
 
 	store := &Store{db: db, path: path}
 	if err := store.migrate(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 
@@ -179,7 +179,7 @@ func (s *Store) List(layer Layer) ([]*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanEntries(rows)
 }
@@ -196,7 +196,7 @@ func (s *Store) ListAll() ([]*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanEntries(rows)
 }
@@ -217,7 +217,7 @@ func (s *Store) Search(query string, limit int) ([]*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanEntries(rows)
 }

@@ -127,7 +127,7 @@ func (m *PluginManager) ConnectSSE(ctx context.Context, name, baseURL string) er
 func (m *PluginManager) registerClientTools(name string, client mcpClient) error {
 	tools, err := client.ListTools()
 	if err != nil {
-		client.Close()
+		_ = client.Close()
 		delete(m.clients, name)
 		return fmt.Errorf("list tools for %q: %w", name, err)
 	}
@@ -170,7 +170,7 @@ func (m *PluginManager) Disconnect(name string) error {
 		}
 	}
 
-	client.Close()
+	_ = client.Close()
 	delete(m.clients, name)
 	return nil
 }
@@ -181,7 +181,7 @@ func (m *PluginManager) DisconnectAll() {
 	defer m.mu.Unlock()
 
 	for name, client := range m.clients {
-		client.Close()
+		_ = client.Close()
 		delete(m.clients, name)
 	}
 

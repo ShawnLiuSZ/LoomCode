@@ -101,8 +101,8 @@ func TestCrypto_SessionFile(t *testing.T) {
 		t.Fatalf("DecryptSessionFile error: %v", err)
 	}
 
-	if sess.Meta.Name != "test" {
-		t.Errorf("Name = %q", sess.Meta.Name)
+	if sess.Name != "test" {
+		t.Errorf("Name = %q", sess.Name)
 	}
 	if len(sess.Messages) != 2 {
 		t.Errorf("Messages count = %d, want 2", len(sess.Messages))

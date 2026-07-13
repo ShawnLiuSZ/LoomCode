@@ -124,9 +124,8 @@ func (c *Client) readLoop() {
 			if trimmed == "" {
 				break
 			}
-			if _, err := fmt.Sscanf(trimmed, "Content-Length: %d", &contentLength); err == nil && contentLength > 0 {
-				// 记录长度，但继续读完剩余 header 行直到空行。
-			}
+			// 解析 Content-Length，继续读完剩余 header 行直到空行。
+			_, _ = fmt.Sscanf(trimmed, "Content-Length: %d", &contentLength)
 		}
 		if contentLength <= 0 {
 			continue

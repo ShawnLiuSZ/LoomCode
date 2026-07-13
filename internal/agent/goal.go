@@ -96,7 +96,7 @@ func (g *GoalStopCondition) Evaluate(ctx context.Context, messages []provider.Me
 func (g *GoalStopCondition) buildEvalPrompt(goal string, messages []provider.Message) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("## Goal\n%s\n\n", goal))
+	fmt.Fprintf(&sb, "## Goal\n%s\n\n", goal)
 	sb.WriteString("## Conversation Summary\n")
 
 	// 提取最近的对话内容（避免上下文过长）
@@ -104,18 +104,18 @@ func (g *GoalStopCondition) buildEvalPrompt(goal string, messages []provider.Mes
 	for _, msg := range recentMessages {
 		switch msg.Role {
 		case "user":
-			sb.WriteString(fmt.Sprintf("User: %s\n", truncate(msg.Content, 200)))
+			fmt.Fprintf(&sb, "User: %s\n", truncate(msg.Content, 200))
 		case "assistant":
 			if msg.Content != "" {
-				sb.WriteString(fmt.Sprintf("Assistant: %s\n", truncate(msg.Content, 200)))
+				fmt.Fprintf(&sb, "Assistant: %s\n", truncate(msg.Content, 200))
 			}
 			if len(msg.ToolCalls) > 0 {
 				for _, tc := range msg.ToolCalls {
-					sb.WriteString(fmt.Sprintf("Tool Call: %s(%s)\n", tc.Function.Name, truncate(tc.Function.Arguments, 100)))
+					fmt.Fprintf(&sb, "Tool Call: %s(%s)\n", tc.Function.Name, truncate(tc.Function.Arguments, 100))
 				}
 			}
 		case "tool":
-			sb.WriteString(fmt.Sprintf("Tool Result: %s\n", truncate(msg.Content, 200)))
+			fmt.Fprintf(&sb, "Tool Result: %s\n", truncate(msg.Content, 200))
 		}
 	}
 

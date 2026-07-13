@@ -185,12 +185,12 @@ func ReplaySession(ctx context.Context, session *Session, opts *ReplayOptions) e
 func GetSessionInfo(session *Session) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("会话: %s\n", session.Name))
-	sb.WriteString(fmt.Sprintf("模型: %s\n", session.Model))
-	sb.WriteString(fmt.Sprintf("Provider: %s\n", session.Provider))
-	sb.WriteString(fmt.Sprintf("创建时间: %s\n", session.CreatedAt.Format("2006-01-02 15:04:05")))
-	sb.WriteString(fmt.Sprintf("更新时间: %s\n", session.UpdatedAt.Format("2006-01-02 15:04:05")))
-	sb.WriteString(fmt.Sprintf("消息数量: %d\n", len(session.Messages)))
+	fmt.Fprintf(&sb, "会话: %s\n", session.Name)
+	fmt.Fprintf(&sb, "模型: %s\n", session.Model)
+	fmt.Fprintf(&sb, "Provider: %s\n", session.Provider)
+	fmt.Fprintf(&sb, "创建时间: %s\n", session.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "更新时间: %s\n", session.UpdatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(&sb, "消息数量: %d\n", len(session.Messages))
 
 	return sb.String()
 }

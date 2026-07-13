@@ -154,7 +154,7 @@ func (t *ReviewTool) RejectAll() {
 func (t *ReviewTool) Preview(edit PendingEdit) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("📄 File: %s\n", edit.File))
+	fmt.Fprintf(&sb, "📄 File: %s\n", edit.File)
 	sb.WriteString("─────────────────────────────────────\n")
 	sb.WriteString("SEARCH:\n")
 	sb.WriteString(truncateLines(edit.OldText, 10))
@@ -174,7 +174,7 @@ func (t *ReviewTool) PreviewAll() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📋 待确认编辑 (%d 个):\n\n", len(pending)))
+	fmt.Fprintf(&sb, "📋 待确认编辑 (%d 个):\n\n", len(pending))
 
 	for _, edit := range pending {
 		sb.WriteString(t.Preview(edit))

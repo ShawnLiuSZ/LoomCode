@@ -15,13 +15,20 @@ linters:
       # 排除常见“无恢复意义”或调用方无法合理处理的错误返回值，
       # 减少 lint 噪音，同时保留对核心业务逻辑的错误检查。
       exclude-functions:
-        - (*database/sql.Rows).Close
-        - (*database/sql.DB).Close
+        - (*database/sql/Rows).Close
+        - (*database/sql/DB).Close
         - (*github.com/gorilla/websocket.Conn).Close
         - (*github.com/gorilla/websocket.Conn).SetWriteDeadline
         - (*github.com/gorilla/websocket.Conn).SetReadDeadline
         - (io.Closer).Close
         - (*os.File).Close
+        # fmt.Fprint* 写入 io.Writer 的返回值几乎不可恢复，排除以减少噪音
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # 临时文件清理，错误无恢复意义
+        - os.Remove
+        - os.RemoveAll
   exclusions:
     rules:
       # 测试文件中的 errcheck 通常不影响生产行为，排除以减少噪音

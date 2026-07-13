@@ -48,7 +48,7 @@ func (t *SkillTool) Execute(ctx context.Context, args map[string]any) (*Result, 
 		var sb strings.Builder
 		sb.WriteString("Available skills (call `skill` with a name to load full instructions):\n")
 		for _, s := range t.listFn() {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
+			fmt.Fprintf(&sb, "- %s: %s\n", s.Name, s.Description)
 		}
 		return &Result{Content: sb.String()}, nil
 	}

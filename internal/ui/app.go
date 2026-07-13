@@ -179,11 +179,8 @@ var (
 	systemStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
 	toolStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
-	inputStyle       = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 	suggestionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	suggestionSel    = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
-	helpStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	loadingStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
 	headerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true).Padding(0, 1)
 	statusBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7")).Padding(0, 1)
 	costGreenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
@@ -905,9 +902,9 @@ Budget:
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "队列为空"})
 		} else {
 			var sb strings.Builder
-			sb.WriteString(fmt.Sprintf("队列中有 %d 个任务:\n\n", len(a.taskQueue)))
+			fmt.Fprintf(&sb, "队列中有 %d 个任务:\n\n", len(a.taskQueue))
 			for i, task := range a.taskQueue {
-				sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, task))
+				fmt.Fprintf(&sb, "  %d. %s\n", i+1, task)
 			}
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 		}
@@ -1132,23 +1129,23 @@ func (a *App) handleSkillsCmd() (tea.Model, tea.Cmd) {
 	skillList := a.skillsMgr.List()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("内置工具 (%d):\n\n", len(tools)))
+	fmt.Fprintf(&sb, "内置工具 (%d):\n\n", len(tools))
 	for _, t := range tools {
 		icon := "✏️"
 		if t.IsReadOnly() {
 			icon = "📖"
 		}
-		sb.WriteString(fmt.Sprintf("  %s %s - %s\n", icon, t.Name(), t.Description()))
+		fmt.Fprintf(&sb, "  %s %s - %s\n", icon, t.Name(), t.Description())
 	}
 
 	if len(skillList) > 0 {
-		sb.WriteString(fmt.Sprintf("\n外部 Skills (%d):\n\n", len(skillList)))
+		fmt.Fprintf(&sb, "\n外部 Skills (%d):\n\n", len(skillList))
 		for _, s := range skillList {
 			source := ""
 			if s.Source == "helix" {
 				source = " [helix]"
 			}
-			sb.WriteString(fmt.Sprintf("  📄 %s%s - %s\n", s.Name, source, s.Description))
+			fmt.Fprintf(&sb, "  📄 %s%s - %s\n", s.Name, source, s.Description)
 		}
 	}
 
@@ -1212,14 +1209,14 @@ func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("会话列表 (%d):\n\n", len(sessions)))
+	fmt.Fprintf(&sb, "会话列表 (%d):\n\n", len(sessions))
 	for _, s := range sessions {
 		marker := "  "
 		if a.activeSess != nil && a.activeSess.ID == s.ID {
 			marker = "▶ "
 		}
-		sb.WriteString(fmt.Sprintf("%s%s — %s (%d 条消息, %s)\n",
-			marker, s.ID, s.Name, len(s.Messages), s.UpdatedAt.Format("01-02 15:04")))
+		fmt.Fprintf(&sb, "%s%s — %s (%d 条消息, %s)\n",
+			marker, s.ID, s.Name, len(s.Messages), s.UpdatedAt.Format("01-02 15:04"))
 	}
 	sb.WriteString("\n使用 /sessions switch <ID> 切换会话")
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
@@ -1247,9 +1244,9 @@ func (a *App) handleCompactCmd() (tea.Model, tea.Cmd) {
 	for _, msg := range middle {
 		switch msg.Role {
 		case "user":
-			summary.WriteString(fmt.Sprintf("- 用户: %s\n", truncateRunes(msg.Content, 100)))
+			fmt.Fprintf(&summary, "- 用户: %s\n", truncateRunes(msg.Content, 100))
 		case "assistant":
-			summary.WriteString(fmt.Sprintf("- 助手: %s\n", truncateRunes(msg.Content, 100)))
+			fmt.Fprintf(&summary, "- 助手: %s\n", truncateRunes(msg.Content, 100))
 		}
 	}
 
@@ -1503,7 +1500,7 @@ func (a *App) renderWelcome() string {
 		} else if i-1 < len(tips) {
 			right = tipStyle.Render(tips[i-1])
 		}
-		sb.WriteString(fmt.Sprintf("%s  %s\n", left, right))
+		fmt.Fprintf(&sb, "%s  %s\n", left, right)
 	}
 
 	return sb.String()
@@ -1855,7 +1852,7 @@ func (a *App) handleEnvCommand(parts []string) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		val := strings.Join(parts[3:], " ")
-		os.Setenv(key, val)
+		_ = os.Setenv(key, val)
 		a.envVars[key] = maskValue(val)
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("已设置 %s = %s", key, maskValue(val))})
 		return a, nil
@@ -1866,7 +1863,7 @@ func (a *App) handleEnvCommand(parts []string) (tea.Model, tea.Cmd) {
 		}
 		key := parts[2]
 		delete(a.envVars, key)
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("已移除 %s", key)})
 		return a, nil
 	case "reload":
@@ -1888,7 +1885,7 @@ func (a *App) showEnvVars() (tea.Model, tea.Cmd) {
 	sb.WriteString("环境变量:\n\n")
 	for key, val := range a.envVars {
 		// val 在 loadEnvVars/set 时已脱敏，此处直接输出，避免二次 mask 导致掩码错乱
-		sb.WriteString(fmt.Sprintf("  %s = %s\n", key, val))
+		fmt.Fprintf(&sb, "  %s = %s\n", key, val)
 	}
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 	return a, nil
@@ -1960,7 +1957,7 @@ func isValidEnvKey(key string) bool {
 		if i == 0 && r >= '0' && r <= '9' {
 			return false
 		}
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
 			return false
 		}
 	}

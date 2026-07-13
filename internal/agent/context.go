@@ -32,16 +32,16 @@ const maxDirEntries = 40
 func (a *Agent) buildEnvContext() string {
 	var sb strings.Builder
 	sb.WriteString("\n## Environment\n")
-	sb.WriteString(fmt.Sprintf("- OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH))
-	sb.WriteString(fmt.Sprintf("- Date: %s\n", time.Now().Format("2006-01")))
+	fmt.Fprintf(&sb, "- OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&sb, "- Date: %s\n", time.Now().Format("2006-01"))
 
 	if a.workDir == "" {
 		return sb.String()
 	}
-	sb.WriteString(fmt.Sprintf("- Working directory: %s\n", a.workDir))
+	fmt.Fprintf(&sb, "- Working directory: %s\n", a.workDir)
 
 	if branch := gitBranch(a.workDir); branch != "" {
-		sb.WriteString(fmt.Sprintf("- Git branch: %s\n", branch))
+		fmt.Fprintf(&sb, "- Git branch: %s\n", branch)
 	}
 
 	if entries := listDir(a.workDir); len(entries) > 0 {

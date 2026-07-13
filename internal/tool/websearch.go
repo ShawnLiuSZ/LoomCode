@@ -67,12 +67,12 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) (*Resu
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search results for: %s\n\n", query))
+	fmt.Fprintf(&sb, "Search results for: %s\n\n", query)
 
 	for i, result := range results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, result.Title))
-		sb.WriteString(fmt.Sprintf("   URL: %s\n", result.URL))
-		sb.WriteString(fmt.Sprintf("   %s\n\n", result.Snippet))
+		fmt.Fprintf(&sb, "%d. %s\n", i+1, result.Title)
+		fmt.Fprintf(&sb, "   URL: %s\n", result.URL)
+		fmt.Fprintf(&sb, "   %s\n\n", result.Snippet)
 	}
 
 	return &Result{Content: sb.String()}, nil
@@ -96,7 +96,7 @@ func (s *BingSearch) Name() string { return "bing" }
 
 func (s *BingSearch) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	if s.apiKey == "" {
-		return nil, fmt.Errorf("Bing API key not configured")
+		return nil, fmt.Errorf("bing API key not configured")
 	}
 
 	reqURL := fmt.Sprintf("https://api.bing.microsoft.com/v7.0/search?q=%s&count=%d",
@@ -169,7 +169,7 @@ func (s *TavilySearch) Name() string { return "tavily" }
 
 func (s *TavilySearch) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	if s.apiKey == "" {
-		return nil, fmt.Errorf("Tavily API key not configured")
+		return nil, fmt.Errorf("tavily API key not configured")
 	}
 
 	reqBody := map[string]any{

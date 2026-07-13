@@ -147,7 +147,7 @@ func (w *Wizard) collectCustomProvider() (providerPreset, error) {
 		return providerPreset{}, err
 	}
 	if baseURL == "" {
-		return providerPreset{}, fmt.Errorf("Base URL 不能为空")
+		return providerPreset{}, fmt.Errorf("base URL 不能为空")
 	}
 	apiKeyEnv, err := w.readLine("请输入 API Key 环境变量名 (例如 MY_API_KEY): ")
 	if err != nil {

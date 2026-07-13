@@ -67,37 +67,37 @@ func (t *GitStatusTool) Execute(ctx context.Context, args map[string]any) (*Resu
 
 	var sb strings.Builder
 	if len(modified) > 0 {
-		sb.WriteString(fmt.Sprintf("Modified (%d):\n", len(modified)))
+		fmt.Fprintf(&sb, "Modified (%d):\n", len(modified))
 		for _, f := range modified {
 			sb.WriteString("  " + f + "\n")
 		}
 	}
 	if len(added) > 0 {
-		sb.WriteString(fmt.Sprintf("Added (%d):\n", len(added)))
+		fmt.Fprintf(&sb, "Added (%d):\n", len(added))
 		for _, f := range added {
 			sb.WriteString("  " + f + "\n")
 		}
 	}
 	if len(deleted) > 0 {
-		sb.WriteString(fmt.Sprintf("Deleted (%d):\n", len(deleted)))
+		fmt.Fprintf(&sb, "Deleted (%d):\n", len(deleted))
 		for _, f := range deleted {
 			sb.WriteString("  " + f + "\n")
 		}
 	}
 	if len(untracked) > 0 {
-		sb.WriteString(fmt.Sprintf("Untracked (%d):\n", len(untracked)))
+		fmt.Fprintf(&sb, "Untracked (%d):\n", len(untracked))
 		for _, f := range untracked {
 			sb.WriteString("  " + f + "\n")
 		}
 	}
 	if len(renamed) > 0 {
-		sb.WriteString(fmt.Sprintf("Renamed (%d):\n", len(renamed)))
+		fmt.Fprintf(&sb, "Renamed (%d):\n", len(renamed))
 		for _, f := range renamed {
 			sb.WriteString("  " + f + "\n")
 		}
 	}
 	if len(other) > 0 {
-		sb.WriteString(fmt.Sprintf("Other (%d):\n", len(other)))
+		fmt.Fprintf(&sb, "Other (%d):\n", len(other))
 		for _, f := range other {
 			sb.WriteString("  " + f + "\n")
 		}

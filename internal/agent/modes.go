@@ -59,7 +59,6 @@ type MultiAgent struct {
 	mode      Mode
 	model     string
 	maxSteps  int
-	messages  []provider.Message
 	goal      *GoalStopCondition
 	skillsMgr *skills.Manager
 	memory    MemoryProvider
@@ -499,10 +498,10 @@ func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candid
 	sb.WriteString(task)
 	sb.WriteString("\n\n## Candidates\n\n")
 	for i, c := range candidates {
-		sb.WriteString(fmt.Sprintf("### Candidate %d\n%s\n\n", i+1, c))
+		fmt.Fprintf(&sb, "### Candidate %d\n%s\n\n", i+1, c)
 	}
 	sb.WriteString("Select the best candidate based on correctness, completeness, and code quality.\n")
-	sb.WriteString(fmt.Sprintf("Return ONLY the number (1-%d) of the best candidate. No explanation.", len(candidates)))
+	fmt.Fprintf(&sb, "Return ONLY the number (1-%d) of the best candidate. No explanation.", len(candidates))
 
 	resp, err := a.provider.Chat(ctx, &provider.ChatRequest{
 		Messages: []provider.Message{

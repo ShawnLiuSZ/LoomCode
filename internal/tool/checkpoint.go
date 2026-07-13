@@ -297,7 +297,7 @@ func FormatCheckpointSummary(checkpoints []Checkpoint) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("最近 %d 个文件快照:\n\n", len(checkpoints)))
+	fmt.Fprintf(&sb, "最近 %d 个文件快照:\n\n", len(checkpoints))
 	for i, cp := range checkpoints {
 		// 取文件名作为简短显示
 		shortPath := cp.OriginalPath
@@ -314,15 +314,15 @@ func FormatCheckpointSummary(checkpoints []Checkpoint) string {
 			status = "新建"
 		}
 
-		sb.WriteString(fmt.Sprintf("  %d. [%s] %s %s (%s, %dB)\n",
+		fmt.Fprintf(&sb, "  %d. [%s] %s %s (%s, %dB)\n",
 			i+1,
 			cp.ID,
 			cp.Timestamp.Format("15:04:05"),
 			status,
 			cp.ToolName,
 			cp.FileSize,
-		))
-		sb.WriteString(fmt.Sprintf("     文件: %s\n\n", shortPath))
+		)
+		fmt.Fprintf(&sb, "     文件: %s\n\n", shortPath)
 	}
 	sb.WriteString("使用 /rewind <ID> 恢复指定快照，或 /rewind last 恢复最近一个。")
 	return sb.String()
