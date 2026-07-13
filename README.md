@@ -11,7 +11,27 @@
   <img src="https://img.shields.io/badge/tests-343%20passing-brightgreen?style=flat-square" alt="Tests: 343 passing">
 </p>
 
+[English](README_EN.md) | 简体中文
+
 **Helix** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 和 [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) 的核心优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置文件一键接入。
+
+---
+
+## 特性
+
+- **多模型支持** — DeepSeek V4、Xiaomi MiMo、任意 OpenAI 兼容厂商
+- **四种 Agent 模式** — Build（构建）/ Plan（规划）/ Compose（编排）/ Max（最大）
+- **跨平台原生支持** — macOS / Linux / Windows，Grep/Glob 由 Go 原生实现，无系统命令依赖
+- **编辑快照安全网** — 写文件前自动快照，`/rewind` 一键回退
+- **跨会话上下文** — `list_sessions` / `read_session` 工具，让 Agent 访问历史会话
+- **工具调用修复** — RepairPipeline 自动修复 JSON 格式错误的工具调用
+- **配置向导** — `helix setup` 交互式生成 `helix.toml` + `.env`
+- **配置 Schema** — `helix schema` 输出 JSON Schema Draft 7，支持编辑器自动补全
+- **MCP 插件协议** — stdio + HTTP 双通道，接入外部工具
+- **长期记忆** — SQLite FTS5，`/remember` 写入项目知识与用户偏好
+- **成本控制** — 实时统计 Token 成本，可设预算上限
+- **Skills 自动加载** — `~/.helix/skills/` 目录自动加载
+- **Prefix Cache** — 充分利用 DeepSeek/MiMo 的前缀缓存能力降低成本
 
 ---
 
@@ -23,7 +43,7 @@
 curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
 ```
 
-脚本自动检测操作系统与架构（macOS/Linux × amd64/arm64），下载预编译二进制并配置 PATH。
+脚本自动检测操作系统与架构（macOS/Linux/Windows × amd64/arm64），下载预编译二进制并配置 PATH。
 
 **方式二：Go 源码安装（适合 Go 开发者）**
 
@@ -46,37 +66,55 @@ make build
 
 ## 快速开始
 
+### 首次使用：交互式配置向导
+
 ```bash
-# 构建
-make build
+helix setup
+```
 
-# 配置 API Key
-cp helix.example.toml helix.toml
-export DEEPSEEK_API_KEY="sk-..."
+五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `helix.toml` + `.env` → 输出 JSON Schema。
 
-# 启动 TUI
-./bin/helix
+### 启动 TUI
 
-# 或单次任务
-./bin/helix run "创建一个 hello.go"
+```bash
+helix                       # 启动交互式 TUI（默认）
+helix --provider deepseek   # 指定 Provider
+helix --model deepseek-v4-pro  # 指定默认模型
+helix --session <id>        # 恢复历史会话
+```
+
+### 单次任务
+
+```bash
+helix run "创建一个 hello.go"
 echo "解释这段代码" | ./bin/helix run
+```
+
+### 输出配置 Schema
+
+```bash
+helix schema > ~/.helix/schema.json
+# 编辑器（VS Code / Vim 等）加载此文件即可获得 helix.toml 的自动补全与校验
 ```
 
 ---
 
 ## CLI 命令
 
-```bash
-helix                              # 启动交互式 TUI（默认）
-helix --provider deepseek          # 指定 Provider（deepseek/mimo/openai）
-helix --model deepseek-v4-pro     # 指定默认模型
-helix --session <id>               # 恢复历史会话
-helix --env-file custom.env       # 加载自定义 .env
-helix --version                    # 显示版本
-helix run <task>                   # 单次任务
-helix setup                        # 配置向导
-helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
-```
+| 命令 | 说明 |
+|------|------|
+| `helix` | 启动交互式 TUI（默认） |
+| `helix run <task>` | 单次任务 |
+| `helix setup` | 交互式配置向导 |
+| `helix schema` | 输出 JSON Schema（配置校验） |
+| `helix dashboard [addr]` | 启动 Web Dashboard（默认 :8080） |
+| `helix --provider <name>` | 指定 Provider（deepseek/mimo/openai） |
+| `helix --model <id>` | 指定模型 |
+| `helix --session <id>` | 恢复历史会话 |
+| `helix --env-file <path>` | 加载自定义 .env |
+| `helix --version` | 显示版本 |
+
+---
 
 ## TUI 交互
 
@@ -86,6 +124,8 @@ helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
 | Tab | 切换 Agent 模式（build/plan/compose/max） |
 | 输入 `/` 后 Tab | 命令自动补全 |
 | ↑↓ / Enter / Esc | 交互式选择器（模型选择等） |
+| Shift+Enter | 换行 |
+| Ctrl+C 两次 | 退出（3 秒内二次确认） |
 
 ### TUI 命令
 
@@ -96,6 +136,9 @@ helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
 | `/build` `/plan` `/compose` `/max` | 切换 Agent 模式 |
 | `/model` | 交互式选择模型（↑↓ 选择，Enter 确认） |
 | `/model <name>` | 直接切换模型 |
+| `/rewind` | 列出最近的编辑快照 |
+| `/rewind last` | 回退到最近一次编辑前的状态 |
+| `/rewind <id>` | 按 ID 回退到指定快照 |
 | `/skills` | 显示内置工具和外部 skills |
 | `/env` | 查看环境变量 |
 | `/env set <KEY> <VALUE>` | 设置环境变量 |
@@ -104,15 +147,96 @@ helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
 | `/sessions` | 查看会话列表 |
 | `/sessions new <name>` | 创建新会话 |
 | `/sessions switch <ID>` | 切换会话 |
+| `/remember <text>` | 写入长期记忆（项目知识/用户偏好） |
 | `/cost` | 显示成本统计 |
+| `/budget <amount>` | 设置会话预算上限 |
+| `/compact` | 压缩上下文 |
 | `/clear` | 清空聊天记录 |
 | `/quit` | 退出 |
 
 ---
 
-## 环境变量配置
+## 编辑快照安全网（/rewind）
 
-支持三级 `.env` 加载（后加载覆盖前加载）：
+Helix 在每次写文件/编辑文件前自动创建快照副本，存储在 `~/.helix/checkpoints/`，最多保留 100 个。被覆盖或删除的文件可通过 `/rewind` 命令恢复。
+
+```bash
+# 查看最近 20 个快照
+/rewind
+
+# 恢复最近一次编辑
+/rewind last
+
+# 恢复指定快照
+/rewind 1700000000000_001
+```
+
+快照元数据（`meta.json`）记录：原路径、快照时间、触发工具（`write_file` / `edit_file`）、原文件是否存在、文件大小。
+
+---
+
+## 跨会话上下文
+
+Agent 在执行任务时可调用以下工具访问历史会话：
+
+| 工具 | 说明 |
+|------|------|
+| `list_sessions` | 列出最近会话（可按 limit/role 过滤） |
+| `read_session` | 读取指定会话的完整消息历史 |
+
+这让 Agent 能"记得"之前讨论过的方案、约定和决策，避免重复提问。
+
+---
+
+## 配置
+
+### 配置文件
+
+`helix.toml`（项目根目录）或 `~/.helix/helix.toml`（全局）。示例见 [`helix.example.toml`](helix.example.toml)。
+
+```toml
+default_provider = "deepseek"
+
+[[providers]]
+name          = "deepseek"
+display_name  = "DeepSeek"
+kind          = "deepseek"
+base_url      = "https://api.deepseek.com"
+api_key_env   = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+
+  [[providers.models]]
+  id             = "deepseek-v4-flash"
+  name           = "DeepSeek V4 Flash"
+  context_window = 131072
+
+  [providers.models.cost]
+  input        = 0.14
+  cached_input = 0.014
+  output       = 0.28
+
+  [providers.models.capabilities]
+  tool_call    = true
+  prefix_cache = true
+```
+
+### JSON Schema 校验
+
+```bash
+helix schema > ~/.helix/schema.json
+```
+
+VS Code 在 `helix.toml` 顶部添加：
+
+```toml
+#:schema ~/.helix/schema.json
+```
+
+即可获得字段补全、类型校验、枚举提示。
+
+### 环境变量
+
+支持四级 `.env` 加载（后加载覆盖前加载）：
 
 ```
 1. ~/.helix/.env        ← 全局配置
@@ -126,6 +250,25 @@ helix dashboard [addr]             # 启动 Web Dashboard（默认 :8080）
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
 MIMO_API_KEY=
 OPENAI_API_KEY=
+```
+
+---
+
+## MCP 插件
+
+在 `helix.toml` 中配置 MCP 服务器，扩展工具能力：
+
+```toml
+# stdio 模式
+[[plugins]]
+name    = "my-tool"
+command = "node"
+args    = ["./mcp-server.js"]
+
+# HTTP/SSE 模式
+[[plugins]]
+name = "remote-tool"
+url  = "https://mcp.example.com/sse"
 ```
 
 ---
@@ -148,12 +291,63 @@ OPENAI_API_KEY=
 | 层次 | 技术 |
 |------|------|
 | 语言 | Go（CGO_ENABLED=0） |
-| 配置 | TOML |
+| 配置 | TOML + JSON Schema |
 | TUI | Bubble Tea + Lip Gloss |
 | 记忆存储 | SQLite FTS5 |
 | 插件协议 | MCP（stdio + HTTP） |
 | LSP | JSON-RPC 2.0 |
 | API 协议 | OpenAI 兼容 |
+| 跨平台 | Unix + Windows（build tags 分流） |
+
+---
+
+## 项目结构
+
+```
+cmd/helix/main.go          ← CLI 入口
+internal/
+  config/                  ← 配置加载、向导、Schema 生成
+  provider/                ← 多厂商模型接入
+    ├── deepseek/          ← DeepSeek V4 适配器
+    ├── mimo/              ← MiMo V2.5 适配器
+    └── openai/            ← 通用 OpenAI 兼容适配器
+  agent/                   ← Agent 引擎（loop/modes/subagent/judge）
+  tool/                    ← 工具系统
+    ├── platform_*.go      ← 跨平台进程管理
+    ├── checkpoint.go      ← 编辑快照管理器
+    ├── command_tools.go   ← Bash/Grep/Glob 工具
+    ├── file_tools.go       ← Read/Write/Edit 工具
+    ├── git_tools.go       ← Git 工具
+    ├── session_tools.go   ← 跨会话上下文工具
+    └── registry.go        ← 工具注册中心
+  context/                 ← 三层分区上下文管理
+  memory/                  ← 长期记忆（SQLite FTS5）
+  control/                 ← 权限/成本/门控
+  session/                 ← 会话管理 + JSONL 持久化
+  mcp/                     ← MCP 客户端
+  ui/                      ← Bubble Tea TUI
+```
+
+---
+
+## 开发
+
+```bash
+make build          # 构建
+make test           # 运行测试
+make lint           # 代码检查
+make install        # 安装到 $GOPATH/bin
+make release        # 发布构建
+```
+
+交叉编译验证：
+
+```bash
+GOOS=windows go build ./...    # 验证 Windows 编译
+GOOS=linux   go build ./...    # 验证 Linux 编译
+```
+
+详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
@@ -167,8 +361,9 @@ OPENAI_API_KEY=
 | Phase 2 缓存与成本优化 | 已完成 |
 | Phase 3 多 Agent 与记忆 | 已完成 |
 | Phase 4 生态与进化 | 已完成 |
+| Phase 5 跨平台与安全网 | 已完成 |
 
-**343 个测试全部通过**，17 个模块覆盖完整。
+**343 个测试全部通过**，18 个模块覆盖完整。
 
 ---
 
@@ -177,6 +372,15 @@ OPENAI_API_KEY=
 - [CODEBUDDY.md](CODEBUDDY.md) — 项目入口指南
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 贡献指南
 - [文档导航](docs/README.md) — 全部文档索引
+
+---
+
+## 致谢
+
+本项目融合了以下项目的核心设计思想：
+
+- [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) — Planner/Executor 分离 session 架构
+- [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) — Prefix Cache 调度与工具能力声明
 
 ---
 
