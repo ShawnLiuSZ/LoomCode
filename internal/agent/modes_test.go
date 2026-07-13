@@ -98,6 +98,91 @@ func TestMultiAgent_PlanMode_ReadOnlyTools(t *testing.T) {
 	}
 }
 
+func TestAgent_BuildToolDefs_ReadOnlyFilter(t *testing.T) {
+	r := tool.NewRegistry()
+	r.Register(&tool.ReadFileTool{})
+	r.Register(&tool.WriteFileTool{})
+
+	p := testutil.NewStubProvider(nil)
+	agent := New(p, r)
+
+	allDefs := agent.buildToolDefs()
+	if len(allDefs) != 2 {
+		t.Fatalf("expected 2 tool defs, got %d", len(allDefs))
+	}
+
+	agent.SetReadOnlyTools(true)
+	readOnlyDefs := agent.buildToolDefs()
+	if len(readOnlyDefs) != 1 {
+		t.Fatalf("expected 1 read-only tool def, got %d", len(readOnlyDefs))
+	}
+	if readOnlyDefs[0].Function.Name != "read_file" {
+		t.Errorf("expected read_file, got %q", readOnlyDefs[0].Function.Name)
+	}
+}
+
+func TestMultiAgent_PlanMode_UsesPlanPromptAndReadOnlyTools(t *testing.T) {
+	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+		return &provider.ChatResponse{Content: "Plan: analyze only"}, nil
+	})
+
+	r := tool.NewRegistry()
+	r.Register(&tool.ReadFileTool{})
+	r.Register(&tool.WriteFileTool{})
+
+	a := NewMultiAgent(p, r)
+	a.SetMode(ModePlan)
+
+	_, err := a.Run(context.Background(), "plan this feature")
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	lastReq := p.LastChatRequest()
+	if lastReq == nil {
+		t.Fatal("expected a Chat request")
+	}
+	if len(lastReq.Messages) == 0 || lastReq.Messages[0].Role != "system" {
+		t.Fatalf("expected first message to be system, got %v", lastReq.Messages)
+	}
+	if !strings.Contains(lastReq.Messages[0].Content, "Plan mode") {
+		t.Errorf("plan prompt should use Plan mode system prompt, got %q", lastReq.Messages[0].Content)
+	}
+	if len(lastReq.Tools) != 1 {
+		t.Errorf("expected 1 read-only tool, got %d", len(lastReq.Tools))
+	}
+	if len(lastReq.Tools) > 0 && lastReq.Tools[0].Function.Name != "read_file" {
+		t.Errorf("expected only read_file tool, got %q", lastReq.Tools[0].Function.Name)
+	}
+}
+
+func TestMultiAgent_ComposeMode_UsesComposePrompt(t *testing.T) {
+	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+		return &provider.ChatResponse{Content: "Composed"}, nil
+	})
+
+	r := tool.NewRegistry()
+	a := NewMultiAgent(p, r)
+	a.SetMode(ModeCompose)
+	a.SetSpec("JWT login spec")
+
+	_, err := a.Run(context.Background(), "implement login")
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+
+	lastReq := p.LastChatRequest()
+	if lastReq == nil {
+		t.Fatal("expected a Chat request")
+	}
+	if len(lastReq.Messages) == 0 || lastReq.Messages[0].Role != "system" {
+		t.Fatalf("expected first message to be system, got %v", lastReq.Messages)
+	}
+	if !strings.Contains(lastReq.Messages[0].Content, "Compose mode") {
+		t.Errorf("compose prompt should use Compose mode system prompt, got %q", lastReq.Messages[0].Content)
+	}
+}
+
 func TestMultiAgent_ComposeMode(t *testing.T) {
 	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 		return &provider.ChatResponse{Content: "Feature implemented according to spec"}, nil

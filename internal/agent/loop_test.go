@@ -257,3 +257,111 @@ func TestMergeToolCallDeltas_DropsEmptyIndexWithoutID(t *testing.T) {
 		t.Errorf("expected id call_1, got %q", merged[0].ID)
 	}
 }
+
+func TestAgent_RepairPipelineEnabled(t *testing.T) {
+	p := testutil.NewStubProvider(nil)
+	p.CapsVal.NeedsToolRepair = true
+
+	r := tool.NewRegistry()
+	agent := New(p, r)
+
+	if agent.repairPipeline == nil {
+		t.Fatal("expected repairPipeline to be initialized when NeedsToolRepair=true")
+	}
+}
+
+func TestAgent_RepairPipelineDisabled(t *testing.T) {
+	p := testutil.NewStubProvider(nil)
+	p.CapsVal.NeedsToolRepair = false
+
+	r := tool.NewRegistry()
+	agent := New(p, r)
+
+	if agent.repairPipeline != nil {
+		t.Fatal("expected repairPipeline to be nil when NeedsToolRepair=false")
+	}
+}
+
+func TestAgent_RepairToolCalls_PreservesValidCalls(t *testing.T) {
+	p := testutil.NewStubProvider(nil)
+	p.CapsVal.NeedsToolRepair = true
+
+	r := tool.NewRegistry()
+	agent := New(p, r)
+
+	calls := []provider.ToolCall{
+		{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file", Arguments: "{\"path\":\"/tmp/test.txt\"}"}, Args: map[string]any{"path": "/tmp/test.txt"}},
+	}
+	repaired := agent.repairToolCalls("", calls)
+
+	if len(repaired) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(repaired))
+	}
+	if repaired[0].ID != "call_1" {
+		t.Errorf("expected id call_1, got %q", repaired[0].ID)
+	}
+	if repaired[0].Function.Name != "read_file" {
+		t.Errorf("expected name read_file, got %q", repaired[0].Function.Name)
+	}
+	if path, ok := repaired[0].Args["path"].(string); !ok || path != "/tmp/test.txt" {
+		t.Errorf("expected args path /tmp/test.txt, got %v", repaired[0].Args)
+	}
+}
+
+func TestAgent_RepairToolCalls_FallsBackOnFailure(t *testing.T) {
+	p := testutil.NewStubProvider(nil)
+	p.CapsVal.NeedsToolRepair = true
+
+	r := tool.NewRegistry()
+	agent := New(p, r)
+
+	// 模拟工具调用 JSON 整体损坏且无法从 reasoning 中回收；repairPipeline 应回退到原结果。
+	calls := []provider.ToolCall{
+		{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file", Arguments: "not json"}, Args: map[string]any{"path": "/tmp/test.txt"}},
+	}
+	repaired := agent.repairToolCalls("", calls)
+
+	if len(repaired) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(repaired))
+	}
+	// RepairPipeline 对整体合法但 arguments 解析失败的输入会直接返回原解析结果，
+	// 这里的关键行为是：不 panic、不丢失调用，保持调用可继续执行。
+	if repaired[0].ID != "call_1" {
+		t.Errorf("expected id call_1, got %q", repaired[0].ID)
+	}
+	if repaired[0].Function.Name != "read_file" {
+		t.Errorf("expected name read_file, got %q", repaired[0].Function.Name)
+	}
+}
+
+func TestAgent_Run_UsesRepairPipeline(t *testing.T) {
+	callCount := 0
+	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+		callCount++
+		if callCount == 1 {
+			return &provider.ChatResponse{
+				ReasoningContent: "I need to read the file",
+				ToolCalls: []provider.ToolCall{
+					{ID: "call_1", Function: provider.ToolCallFunc{Name: "read_file", Arguments: "not json"}},
+				},
+			}, nil
+		}
+		return &provider.ChatResponse{Content: "File analysis complete"}, nil
+	})
+	p.CapsVal.NeedsToolRepair = true
+
+	r := tool.NewRegistry()
+	r.Register(&tool.ReadFileTool{})
+
+	agent := New(p, r)
+	agent.SetMaxSteps(5)
+
+	// 由于 tool call 损坏无法执行，模型应收到错误结果后继续；这里主要验证 repairPipeline 被触发且不 panic。
+	_, err := agent.Run(context.Background(), "analyze /tmp/test.txt")
+	if err != nil {
+		t.Fatalf("Run() error: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("callCount = %d, want 2", callCount)
+	}
+}

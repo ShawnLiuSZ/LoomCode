@@ -408,3 +408,15 @@ func (m *Manager) Count() int {
 	defer m.mu.RUnlock()
 	return len(m.sessions)
 }
+
+// SessionWithMessages 从磁盘加载指定会话的完整内容（含消息）。
+// Manager.List() 返回的 Session 仅含元数据，需要消息时应使用本方法。
+func (m *Manager) SessionWithMessages(id string) (*Session, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("session %q not found", id)
+	}
+	return loadFromFile(s.filePath)
+}

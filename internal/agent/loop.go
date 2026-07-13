@@ -35,8 +35,10 @@ type Agent struct {
 	costBudget           float64
 	onBudgetExceeded     func()
 	costAccumulated      float64
-	cacheScheduler       *CacheScheduler // CacheTTL-aware 调度器；provider 无 CacheTTL 时为 nil（禁用）
-	systemPromptOverride string          // 非空时覆盖默认静态系统提示（用于 planner/executor 分离 session）
+	cacheScheduler       *CacheScheduler       // CacheTTL-aware 调度器；provider 无 CacheTTL 时为 nil（禁用）
+	repairPipeline       *tool.RepairPipeline  // 工具调用修复流水线；provider 未声明 NeedsToolRepair 时为 nil（禁用）
+	systemPromptOverride string                // 非空时覆盖默认静态系统提示（用于 planner/executor 分离 session）
+	readOnlyTools        bool                  // 仅暴露只读工具（用于 Plan 模式等最小权限场景）
 }
 
 // New 创建 Agent
@@ -56,6 +58,10 @@ func New(p provider.Provider, registry *tool.Registry) *Agent {
 	// 否则 cacheScheduler 保持 nil（禁用调度）。
 	if ttl := p.Capabilities().CacheTTL; ttl > 0 {
 		a.cacheScheduler = NewCacheScheduler(ttl)
+	}
+	// 若 provider 声明流式 tool-call 需要修复（如 MiMo/DeepSeek），启用 RepairPipeline。
+	if p.Capabilities().NeedsToolRepair {
+		a.repairPipeline = tool.NewRepairPipeline()
 	}
 	return a
 }
@@ -81,10 +87,14 @@ func (a *Agent) GetEffort() *EffortManager { return a.effort }
 // SetModel 设置模型名
 func (a *Agent) SetModel(m string) { a.model = m }
 
-// SetSystemPrompt 覆盖默认静态系统提示。
+// SetSystemPrompt 注入专用系统提示，覆盖默认的 Helix 身份提示。
 // 用于 planner/executor 分离 session 架构中给 planner 注入专用提示。
 // 空字符串表示使用默认的 Helix 身份提示。
 func (a *Agent) SetSystemPrompt(s string) { a.systemPromptOverride = s }
+
+// SetReadOnlyTools 设置是否仅向模型暴露只读工具。
+// 启用后 buildToolDefs 会过滤掉所有写工具，用于 Plan 模式等最小权限场景。
+func (a *Agent) SetReadOnlyTools(v bool) { a.readOnlyTools = v }
 
 // SetWorkDir 设置工作目录
 func (a *Agent) SetWorkDir(d string) { a.workDir = d }
@@ -405,6 +415,9 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			// 合并工具调用增量
 			toolCalls = mergeToolCallDeltas(toolCallDeltas)
 
+			// 若 provider 声明 NeedsToolRepair，对装配好的 tool_calls 进行修复兜底。
+			toolCalls = a.repairToolCalls(reasoningContent, toolCalls)
+
 			// 追加 assistant 消息（包含 reasoning_content）
 			assistantMsg := provider.Message{
 				Role:             "assistant",
@@ -563,6 +576,8 @@ func (a *Agent) Run(ctx context.Context, task string) (string, error) {
 			ReasoningContent: resp.ReasoningContent,
 		}
 		if len(resp.ToolCalls) > 0 {
+			// 若 provider 声明 NeedsToolRepair，对装配好的 tool_calls 进行修复兜底。
+			resp.ToolCalls = a.repairToolCalls(resp.ReasoningContent, resp.ToolCalls)
 			for i := range resp.ToolCalls {
 				argsJSON, _ := json.Marshal(resp.ToolCalls[i].Args)
 				resp.ToolCalls[i].Function.Arguments = string(argsJSON)
@@ -636,6 +651,69 @@ func (a *Agent) executeTools(ctx context.Context, toolCalls []provider.ToolCall)
 		}
 	}
 	return a.executor.Execute(ctx, calls)
+}
+
+// repairToolCalls 对装配好的 tool_calls 进行修复兜底。
+// 当 provider 声明 NeedsToolRepair 时，将 tool_calls 序列化回原始 JSON，
+// 经 RepairPipeline 修复后再转回 provider.ToolCall；修复失败时回退到原结果，
+// 避免破坏正常路径。
+func (a *Agent) repairToolCalls(reasoning string, calls []provider.ToolCall) []provider.ToolCall {
+	if a.repairPipeline == nil || len(calls) == 0 {
+		return calls
+	}
+	rawJSON, err := toolCallsToRawJSON(calls)
+	if err != nil {
+		return calls
+	}
+	repaired, err := a.repairPipeline.Repair(reasoning, rawJSON)
+	if err != nil {
+		return calls
+	}
+	return repairedCallsToToolCalls(repaired, calls)
+}
+
+// toolCallsToRawJSON 将 provider.ToolCall 序列化为 RepairPipeline 期望的原始 tool_calls JSON 数组。
+func toolCallsToRawJSON(calls []provider.ToolCall) (string, error) {
+	type rawCall struct {
+		Function struct {
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"function"`
+	}
+	raw := make([]rawCall, len(calls))
+	for i, tc := range calls {
+		args := tc.Function.Arguments
+		if args == "" && tc.Args != nil {
+			b, _ := json.Marshal(tc.Args)
+			args = string(b)
+		}
+		raw[i].Function.Name = tc.Function.Name
+		raw[i].Function.Arguments = args
+	}
+	b, err := json.Marshal(raw)
+	return string(b), err
+}
+
+// repairedCallsToToolCalls 将 RepairPipeline 输出转回 provider.ToolCall，尽量保留原 ID。
+func repairedCallsToToolCalls(repaired []tool.RepairedCall, original []provider.ToolCall) []provider.ToolCall {
+	result := make([]provider.ToolCall, len(repaired))
+	for i, rc := range repaired {
+		id := ""
+		if i < len(original) {
+			id = original[i].ID
+		}
+		argsJSON, _ := json.Marshal(rc.Args)
+		result[i] = provider.ToolCall{
+			ID:   id,
+			Type: "function",
+			Function: provider.ToolCallFunc{
+				Name:      rc.Name,
+				Arguments: string(argsJSON),
+			},
+			Args: rc.Args,
+		}
+	}
+	return result
 }
 
 // computePrefix 计算用于指纹追踪的 prefix：静态 system prompt + tools 定义 JSON。
@@ -725,6 +803,9 @@ func (a *Agent) buildToolDefs() []provider.ToolDef {
 	tools := a.tools.List()
 	defs := make([]provider.ToolDef, 0, len(tools))
 	for _, t := range tools {
+		if a.readOnlyTools && !t.IsReadOnly() {
+			continue
+		}
 		schema := t.Schema()
 		params := map[string]any{
 			"type":       schema.Type,

@@ -74,6 +74,10 @@ func (r *Registry) RegisterDefaults() {
 		// recall_memory 默认注册为占位工具（返回 "No memory configured."）；
 		// 真正的记忆来源由 agent.SetMemory 通过 SetMemoryProvider 注入。
 		&RecallMemoryTool{},
+		// list_sessions / read_session 默认注册为占位工具；
+		// 真正的会话来源由 CLI 在 session manager 创建后通过 SetSessionManagerForTools 注入。
+		&ListSessionsTool{},
+		&ReadSessionTool{},
 	}
 	for _, t := range defaults {
 		if err := r.Register(t); err != nil {

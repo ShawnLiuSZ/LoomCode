@@ -427,6 +427,11 @@ func chatCommand() {
 		fmt.Fprintf(os.Stderr, "Warning: session manager init failed: %v\n", err)
 	}
 
+	// 把会话管理器注入 list_sessions / read_session 工具，实现跨会话上下文能力。
+	if sessionMgr != nil {
+		tool.SetSessionManagerForTools(tools, sessionMgr)
+	}
+
 	// 启动 TUI
 	app := ui.NewApp(p, tools)
 	app.SetModel(selectModel(provCfg))

@@ -326,60 +326,95 @@ func (a *MultiAgent) runBuild(ctx context.Context, task string) (string, error) 
 	return result, err
 }
 
-// runPlan Plan 模式：只读分析，不执行写操作
+// runPlan Plan 模式：只读分析，不执行写操作。
+// 使用独立的 planner Agent，注入 Plan 专用 system prompt 与只读工具集，
+// 使 planner 拥有与 executor 隔离且各自稳定的 prefix cache 会话。
 func (a *MultiAgent) runPlan(ctx context.Context, task string) (string, error) {
-	a.messages = []provider.Message{
-		{Role: "system", Content: a.buildPlanPrompt()},
-		{Role: "user", Content: task},
-	}
-
-	// 如果有预设计划，加入上下文
-	if a.plan != "" {
-		a.messages = append(a.messages, provider.Message{
-			Role: "system", Content: "Existing plan:\n" + a.plan,
-		})
-	}
-
-	resp, err := a.provider.Chat(ctx, &provider.ChatRequest{
-		Model:    "",
-		Messages: a.messages,
-		Tools:    a.buildReadOnlyToolDefs(),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	return resp.Content, nil
-}
-
-// runCompose Compose 模式：规格驱动开发
-func (a *MultiAgent) runCompose(ctx context.Context, task string) (string, error) {
-	a.messages = []provider.Message{
-		{Role: "system", Content: a.buildComposePrompt()},
-		{Role: "user", Content: task},
-	}
-
-	if a.spec != "" {
-		a.messages = append(a.messages, provider.Message{
-			Role: "system", Content: "Specification:\n" + a.spec,
-		})
-	}
-
-	// Compose 使用完整工具集
-	agent := New(a.provider, a.tools)
-	agent.SetEventLog(a.eventLog)
-	agent.SetMaxSteps(a.maxSteps)
-	agent.SetWorkDir(a.workDir)
+	planner := New(a.provider, a.tools)
+	planner.SetEventLog(a.eventLog)
+	planner.SetMaxSteps(a.maxSteps)
+	planner.SetModel(a.model)
+	planner.SetWorkDir(a.workDir)
+	planner.SetSystemPrompt(a.buildPlanPrompt())
+	planner.SetReadOnlyTools(true)
 	if a.effort != nil {
-		agent.SetEffort(a.effort)
+		planner.SetEffort(a.effort)
+	}
+	if a.skillsMgr != nil {
+		planner.SetSkillsManager(a.skillsMgr)
 	}
 	if a.memory != nil {
-		agent.SetMemory(a.memory)
+		planner.SetMemory(a.memory)
+	}
+	if a.onCost != nil {
+		planner.SetCostCallback(a.onCost)
+	}
+	if a.costBudget > 0 {
+		planner.SetCostBudget(a.costBudget)
+	}
+	if a.onBudgetExceeded != nil {
+		planner.SetOnBudgetExceeded(a.onBudgetExceeded)
 	}
 	if a.hooks != nil {
-		agent.SetHooks(a.hooks)
+		planner.SetHooks(a.hooks)
 	}
-	return agent.Run(ctx, task)
+	for _, g := range a.guards {
+		planner.AddGuard(g)
+	}
+
+	// 如果有预设计划，作为历史上下文注入，使 planner 在保持前缀稳定的同时参考已有计划。
+	if a.plan != "" {
+		planner.SetHistory([]provider.Message{
+			{Role: "assistant", Content: "Existing plan:\n" + a.plan},
+		})
+	}
+
+	return planner.Run(ctx, task)
+}
+
+// runCompose Compose 模式：规格驱动开发。
+// 使用独立的 composer Agent，注入 Compose 专用 system prompt 与规格上下文，
+// 使其与 Build/Plan 拥有各自稳定的 prefix cache 会话。
+func (a *MultiAgent) runCompose(ctx context.Context, task string) (string, error) {
+	composer := New(a.provider, a.tools)
+	composer.SetEventLog(a.eventLog)
+	composer.SetMaxSteps(a.maxSteps)
+	composer.SetModel(a.model)
+	composer.SetWorkDir(a.workDir)
+	composer.SetSystemPrompt(a.buildComposePrompt())
+	if a.effort != nil {
+		composer.SetEffort(a.effort)
+	}
+	if a.skillsMgr != nil {
+		composer.SetSkillsManager(a.skillsMgr)
+	}
+	if a.memory != nil {
+		composer.SetMemory(a.memory)
+	}
+	if a.onCost != nil {
+		composer.SetCostCallback(a.onCost)
+	}
+	if a.costBudget > 0 {
+		composer.SetCostBudget(a.costBudget)
+	}
+	if a.onBudgetExceeded != nil {
+		composer.SetOnBudgetExceeded(a.onBudgetExceeded)
+	}
+	if a.hooks != nil {
+		composer.SetHooks(a.hooks)
+	}
+	for _, g := range a.guards {
+		composer.AddGuard(g)
+	}
+
+	// 如果有预设计格，作为历史上下文注入，使 composer 在保持前缀稳定的同时遵循规格。
+	if a.spec != "" {
+		composer.SetHistory([]provider.Message{
+			{Role: "assistant", Content: "Specification:\n" + a.spec},
+		})
+	}
+
+	return composer.Run(ctx, task)
 }
 
 // runMax Max 模式：并行 N 候选 + judge 选最优
