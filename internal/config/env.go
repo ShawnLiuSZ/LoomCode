@@ -12,7 +12,7 @@ import (
 
 // LoadEnvFiles 按优先级加载 .env 文件
 // 加载顺序（后加载覆盖先加载）：
-// 1. ~/.helix/.env（全局）
+// 1. ~/.loomcode/.env（全局）
 // 2. ./.env（项目）
 // 3. ./.env.local（项目本地，不提交）
 //
@@ -23,7 +23,7 @@ func LoadEnvFiles(projectDir string) error {
 
 	home, err := os.UserHomeDir()
 	if err == nil {
-		globalPath := filepath.Join(home, ".helix", ".env")
+		globalPath := filepath.Join(home, ".loomcode", ".env")
 		if err := loadEnvFile(globalPath); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("global .env (%s): %w", globalPath, err))
 		}
@@ -68,7 +68,7 @@ func loadEnvFile(path string) error {
 
 // EnvFileTemplate 生成 .env 模板内容
 func EnvFileTemplate() string {
-	return `# Helix CLI Environment Configuration
+	return `# LoomCode CLI Environment Configuration
 # Copy this file to .env and fill in your API keys
 
 # DeepSeek API Key

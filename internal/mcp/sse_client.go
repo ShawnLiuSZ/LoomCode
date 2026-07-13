@@ -69,7 +69,7 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 			Roots: &RootsCaps{ListChanged: true},
 		},
 		ClientInfo: ClientInfo{
-			Name:    "Helix CLI",
+			Name:    "LoomCode CLI",
 			Version: "0.1.0",
 		},
 	}

@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/consts"
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/consts"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 const kind = "mimo"

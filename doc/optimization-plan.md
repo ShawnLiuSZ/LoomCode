@@ -1,4 +1,4 @@
-# Helix 项目优化方案
+# LoomCode 项目优化方案
 
 > 审计时间：2026-07-11  
 > 审计范围：全项目代码（internal/、cmd/、TUI 交互、架构设计）  
@@ -82,7 +82,7 @@
   1. 在 App 结构体中添加 `inputHistory []string` 和 `historyIndex int`
   2. 发送消息时追加到历史
   3. 上/下箭头在输入为空时回溯历史
-  4. 可选：持久化到 `~/.helix/history`
+  4. 可选：持久化到 `~/.loomcode/history`
 
 #### 1.6 textarea 高度固定为 3 行
 
@@ -266,13 +266,13 @@
 
 #### 2.1 main.go 装配逻辑过重
 
-- **文件**：`cmd/helix/main.go`（~600 行）
+- **文件**：`cmd/loomcode/main.go`（~600 行）
 - **问题**：`createProvider`、`configureToolPermissions`、`connectPlugins`、`registerAutoFormatHook` 等装配函数全部塞在 main.go，`runCommand` 与 `chatCommand` 装配代码大量重复。
 - **修复方案**：抽取到 `internal/bootstrap` 包，提取公共 `buildAgent` 工厂，main.go 仅做 flag 解析与分发。
 
 #### 2.2 Provider 注册硬编码
 
-- **文件**：`cmd/helix/main.go`
+- **文件**：`cmd/loomcode/main.go`
 - **问题**：`reg.Register(&openai.Adapter{})` 等三处硬编码，新增 Provider 必须改 main.go。
 - **修复方案**：用 `init()` 自注册或显式注册表，符合开闭原则。
 
@@ -335,7 +335,7 @@
 #### 2.12 会话无上限/清理机制
 
 - **文件**：`internal/session/session.go`
-- **问题**：`~/.helix/sessions/` 无限增长。
+- **问题**：`~/.loomcode/sessions/` 无限增长。
 - **修复方案**：加 TTL 或数量上限自动归档。
 
 #### 2.13 MCP 工具 IsReadOnly() 恒返回 false
@@ -539,7 +539,7 @@
 
 | 项 | 值 |
 |---|---|
-| 模块名 | `github.com/ShawnLiuSZ/Helix` |
+| 模块名 | `github.com/ShawnLiuSZ/loomcode` |
 | Go 版本 | 1.25.0 |
 | 定位 | 纯 CLI 形态、多模型、可扩展的 Agent 编程工具 |
 | 核心依赖 | Bubble Tea (TUI)、Lip Gloss/Glamour (渲染)、modernc.org/sqlite、BurntSushi/toml |

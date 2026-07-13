@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 func TestNewRequest(t *testing.T) {

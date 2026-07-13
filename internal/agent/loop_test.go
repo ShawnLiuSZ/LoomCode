@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 func TestAgent_SingleTurn(t *testing.T) {
@@ -166,7 +166,7 @@ func TestAgent_GuardChain(t *testing.T) {
 		return nil
 	})
 
-	t.Setenv("HELIX_TEST", "1")
+	t.Setenv("LOOMCODE_TEST", "1")
 	_, _ = agent.Run(context.Background(), "read file")
 
 	if !guardCalled {
@@ -202,8 +202,8 @@ func TestAgent_BuildSystemPrompt(t *testing.T) {
 	agent := New(p, r)
 
 	prompt := agent.buildSystemPrompt()
-	if !strings.Contains(prompt, "Helix") {
-		t.Error("system prompt should mention Helix")
+	if !strings.Contains(prompt, "LoomCode") {
+		t.Error("system prompt should mention LoomCode")
 	}
 	if !strings.Contains(prompt, "tools") {
 		t.Error("system prompt should mention tools")

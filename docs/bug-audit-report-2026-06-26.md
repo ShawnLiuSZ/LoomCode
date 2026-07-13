@@ -1,4 +1,4 @@
-# Helix Bug 检查报告
+# LoomCode Bug 检查报告
 
 **检查时间**: 2026-06-26
 **基线**: `go build ./...` 通过 · `go vet` 1 处警告（见 L1） · `go test ./...` 16 个包全绿 · `-race` 在关键包通过
@@ -11,7 +11,7 @@
 | 严重度 | 数量 | 项目 |
 |--------|------|------|
 | 🔴 Critical | 1 | L8 dashboard 优雅关闭死代码 + 资源泄漏 |
-| 🟠 High | 4 | L2 Grep/Glob 误杀 helix 自身 · L4 SSE Close 双关 panic · L5 SSE reconnect 通知竞态 · L6 truncateMessages orphan tool |
+| 🟠 High | 4 | L2 Grep/Glob 误杀 loomcode 自身 · L4 SSE Close 双关 panic · L5 SSE reconnect 通知竞态 · L6 truncateMessages orphan tool |
 | 🟡 Medium | 8 | L3 / L7 / L9 / L11 / L12 / L13 / L14 / L15 |
 | 🟢 Low | 3 | L1 / L10 / L16 / L17 |
 
@@ -24,7 +24,7 @@
 ### L8 — dashboard 优雅关闭是死代码，Ctrl+C 时不 graceful shutdown；MCP 子进程成孤儿
 - **文件**:
   - `internal/dashboard/server.go:73-78`（死代码）
-  - `cmd/helix/main.go:137, 411, 558-570`（资源泄漏 + 不响应信号）
+  - `cmd/loomcode/main.go:137, 411, 558-570`（资源泄漏 + 不响应信号）
 - **现状**:
   ```go
   // dashboard/server.go
@@ -36,7 +36,7 @@
   }()
   ```
   上次审计已标记为死代码（`M8 优雅关闭` 旁注），但 `Start()` 仍未接受外部 `ctx`、goroutine 永远等不到 Done；用户 Ctrl+C 时 `srv.Shutdown` 不会被调用，正在处理的 HTTP/WS 连接被 RST，未发送的响应丢失。
-- **配套泄漏**: `cmd/helix/main.go` 中 `connectPlugins(...)` 返回的 `*mcp.PluginManager` 全部被丢弃（`runCommand` line 137、`chatCommand` line 411）。stdio MCP 插件对应的子进程既没注册 cleanup、也没 `DisconnectAll` 调用，TUI 退出时这些子进程**变孤儿进程**继续运行。
+- **配套泄漏**: `cmd/loomcode/main.go` 中 `connectPlugins(...)` 返回的 `*mcp.PluginManager` 全部被丢弃（`runCommand` line 137、`chatCommand` line 411）。stdio MCP 插件对应的子进程既没注册 cleanup、也没 `DisconnectAll` 调用，TUI 退出时这些子进程**变孤儿进程**继续运行。
 - **最小修复**:
   1. `dashboard.NewServer(addr)` / `Start(ctx context.Context)`：用传入 ctx 替换 `context.Background()`，并在 main.go 里把 `signal.NotifyContext` 的 ctx 传过去
   2. `main.go` 把 `connectPlugins` 返回的 `pm` 缓存到局部变量，在 `chatCommand` / `runCommand` / `dashboardCommand` 退出前 `defer pm.DisconnectAll()`（**前提：DisconnectAll 当前无超时控制，长时间 hang 的 server 仍会卡住**；可加 context + 短超时保护）
@@ -45,7 +45,7 @@
 
 ## 2. 🟠 High
 
-### L2 — GrepTool / GlobTool 用 `-cmd.Process.Pid` 杀进程组但未 `Setpgid`，可能杀死 helix 自身
+### L2 — GrepTool / GlobTool 用 `-cmd.Process.Pid` 杀进程组但未 `Setpgid`，可能杀死 loomcode 自身
 - **文件**: `internal/tool/command_tools.go:155-159, 222-226`
 - **现状**:
   ```go
@@ -56,7 +56,7 @@
       syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)  // ← 负 PID = 进程组 ID
   }
   ```
-  BashTool 已经修复（line 67-68 显式 `Setpgid: true`）。但 Grep/Glob 没继承此修复。子进程没被放进独立进程组时，负 PID 命中的是**父进程（helix）所在的进程组**。`grep -r` 截断 512KB 时，会把 helix 自己一起杀掉。
+  BashTool 已经修复（line 67-68 显式 `Setpgid: true`）。但 Grep/Glob 没继承此修复。子进程没被放进独立进程组时，负 PID 命中的是**父进程（loomcode）所在的进程组**。`grep -r` 截断 512KB 时，会把 loomcode 自己一起杀掉。
 - **触发条件**: 用户用大文件 grep / glob 到大量文件导致输出 > 512KB（很常见）。
 - **最小修复**: 与 BashTool 对齐，加 `cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`；或退一步用 `cmd.Process.Kill()` 杀单个 PID（与"孤儿子进程"取舍，看产品语义）。
 
@@ -236,7 +236,7 @@
 ## 5. 建议处置（按优先级）
 
 1. **L8**（Critical，资源/可用性）：dashboard 收 ctx + main.go `defer pm.DisconnectAll()`。一次性改完。
-2. **L2**（High，误杀 helix）：Grep/Glob 加 `Setpgid`，与 Bash 对齐。10 行。
+2. **L2**（High，误杀 loomcode）：Grep/Glob 加 `Setpgid`，与 Bash 对齐。10 行。
 3. **L4 + L5**（SSE 客户端并发）：合并修复——`sync.Once` 保护 close + `sync.Cond` 通知。30 行。
 4. **L6**（API 400 风险）：`truncateMessages` 复用 `compactMessages` 的"跳孤立 tool"逻辑。5 行。
 5. **L3 / L11 / L12 / L13 / L14 / L15**（Medium，6 项）：按 TDD 写复现测试 → 最小修复。可一次性提交。

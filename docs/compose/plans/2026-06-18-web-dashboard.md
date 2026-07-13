@@ -425,13 +425,13 @@ git commit -m "feat(dashboard): add WebSocket support"
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Helix Dashboard</title>
+    <title>LoomCode Dashboard</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>Helix Dashboard</h1>
+            <h1>LoomCode Dashboard</h1>
             <div class="status-bar">
                 <span id="deepseek-status">DeepSeek: --</span>
                 <span id="mimo-status">MiMo: --</span>
@@ -647,16 +647,16 @@ git commit -m "feat(dashboard): add frontend interface"
 **Covers:** [S6]
 
 **Files:**
-- Modify: `cmd/helix/main.go`
+- Modify: `cmd/loomcode/main.go`
 
 - [ ] **Step 1: 添加 dashboard 命令**
 
-修改 `cmd/helix/main.go`:
+修改 `cmd/loomcode/main.go`:
 
 ```go
 import (
     // ... 现有导入
-    "github.com/ShawnLiuSZ/Helix/internal/dashboard"
+    "github.com/ShawnLiuSZ/loomcode/internal/dashboard"
 )
 
 // 在 switch cmd 中添加
@@ -685,12 +685,12 @@ func dashboardCommand() {
 
 ```go
 func usage() {
-    fmt.Fprintf(os.Stderr, "Helix CLI - 双螺旋 · 多模型 · 可扩展\n\n")
+    fmt.Fprintf(os.Stderr, "LoomCode CLI - 双螺旋 · 多模型 · 可扩展\n\n")
     fmt.Fprintf(os.Stderr, "Usage:\n")
-    fmt.Fprintf(os.Stderr, "  helix [options] run <task>     Run a single task\n")
-    fmt.Fprintf(os.Stderr, "  helix [options] setup          Run configuration wizard\n")
-    fmt.Fprintf(os.Stderr, "  helix [options] chat           Interactive TUI\n")
-    fmt.Fprintf(os.Stderr, "  helix [options] dashboard      Start web dashboard\n")
+    fmt.Fprintf(os.Stderr, "  loomcode [options] run <task>     Run a single task\n")
+    fmt.Fprintf(os.Stderr, "  loomcode [options] setup          Run configuration wizard\n")
+    fmt.Fprintf(os.Stderr, "  loomcode [options] chat           Interactive TUI\n")
+    fmt.Fprintf(os.Stderr, "  loomcode [options] dashboard      Start web dashboard\n")
     // ...
 }
 ```
@@ -698,7 +698,7 @@ func usage() {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add cmd/helix/main.go
+git add cmd/loomcode/main.go
 git commit -m "feat(cli): add dashboard command"
 ```
 
@@ -715,7 +715,7 @@ Expected: PASS
 
 - [ ] **Step 2: 构建并测试**
 
-Run: `go build -o bin/helix ./cmd/helix && ./bin/helix dashboard`
+Run: `go build -o bin/loomcode ./cmd/loomcode && ./bin/loomcode dashboard`
 Expected: Dashboard 在 http://localhost:8080 运行
 
 - [ ] **Step 3: 优化前端**

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 // StubProvider 测试用 Provider stub（返回预设数据）

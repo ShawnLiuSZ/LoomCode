@@ -1,4 +1,4 @@
-# Helix CLI 文档
+# LoomCode CLI 文档
 
 > 双螺旋 · 多模型 · 可扩展
 
@@ -6,9 +6,9 @@
 
 ### 📚 Tutorials（学习教程）
 
-面向新手的实践步骤，帮助您从零开始使用 Helix。
+面向新手的实践步骤，帮助您从零开始使用 LoomCode。
 
-- [快速入门](tutorials/getting-started.md) - 5 分钟上手 Helix
+- [快速入门](tutorials/getting-started.md) - 5 分钟上手 LoomCode
 - [配置 Provider](tutorials/configuring-providers.md) - 设置 DeepSeek、OpenAI 等模型
 - [TUI 交互指南](tutorials/tui-guide.md) - 学习交互式界面操作
 
@@ -26,7 +26,7 @@
 技术细节的完整描述。
 
 - [CLI 命令参考](reference/cli-commands.md) - 所有命令行选项和参数
-- [配置文件格式](reference/config-format.md) - helix.toml 完整语法
+- [配置文件格式](reference/config-format.md) - loomcode.toml 完整语法
 - [内置工具列表](reference/built-in-tools.md) - 所有内置工具及其参数
 - [Provider 接口](reference/provider-interface.md) - Provider 适配器开发指南
 - [MCP 插件协议](reference/mcp-protocol.md) - MCP 插件集成说明
@@ -54,8 +54,8 @@
 
 | 资源 | 链接 |
 |------|------|
-| GitHub | [ShawnLiuSZ/Helix](https://github.com/ShawnLiuSZ/Helix) |
-| 问题反馈 | [GitHub Issues](https://github.com/ShawnLiuSZ/Helix/issues) |
+| GitHub | [ShawnLiuSZ/LoomCode](https://github.com/ShawnLiuSZ/loomcode) |
+| 问题反馈 | [GitHub Issues](https://github.com/ShawnLiuSZ/loomcode/issues) |
 | 贡献指南 | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | 许可证 | [MIT License](../LICENSE) |
 

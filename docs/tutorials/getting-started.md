@@ -1,6 +1,6 @@
 # 快速入门
 
-> 5 分钟上手 Helix CLI
+> 5 分钟上手 LoomCode CLI
 
 ## 前置条件
 
@@ -13,27 +13,27 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/ShawnLiuSZ/Helix.git
-cd Helix
+git clone https://github.com/ShawnLiuSZ/loomcode.git
+cd LoomCode
 
 # 构建
 make build
 
 # 验证安装
-./bin/helix --version
+./bin/loomcode --version
 ```
 
 ### 方式二：使用 Go install
 
 ```bash
-go install github.com/ShawnLiuSZ/Helix/cmd/helix@latest
+go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 ```
 
 ### 方式三：Homebrew（macOS/Linux）
 
 ```bash
-brew tap ShawnLiuSZ/helix
-brew install helix
+brew tap ShawnLiuSZ/loomcode
+brew install loomcode
 ```
 
 ## 配置
@@ -42,10 +42,10 @@ brew install helix
 
 ```bash
 # 交互式配置向导
-helix setup
+loomcode setup
 
 # 或手动创建
-cp helix.example.toml helix.toml
+cp loomcode.example.toml loomcode.toml
 ```
 
 ### 2. 设置 API Key
@@ -61,7 +61,7 @@ echo "DEEPSEEK_API_KEY=sk-your-key-here" > .env
 ### 3. 验证配置
 
 ```bash
-helix run "Hello, what model are you?"
+loomcode run "Hello, what model are you?"
 ```
 
 ## 基本使用
@@ -69,17 +69,17 @@ helix run "Hello, what model are you?"
 ### 启动交互式 TUI
 
 ```bash
-helix
+loomcode
 ```
 
 ### 单次任务模式
 
 ```bash
 # 直接执行任务
-helix run "创建一个 hello.go 文件"
+loomcode run "创建一个 hello.go 文件"
 
 # 从管道读取
-echo "解释这段代码" | helix run
+echo "解释这段代码" | loomcode run
 ```
 
 ### 常用命令

@@ -30,7 +30,7 @@ func parseRemember(arg string, existingCount int) (key, val string, ok bool) {
 func (a *App) handleRememberCmd(arg string) (tea.Model, tea.Cmd) {
 	if a.memMgr == nil {
 		a.messages = append(a.messages, chatMessage{
-			Role: "system", Content: "记忆未启用（无法打开 ~/.helix/memory.db）", Timestamp: time.Now(),
+			Role: "system", Content: "记忆未启用（无法打开 ~/.loomcode/memory.db）", Timestamp: time.Now(),
 		})
 		return a, nil
 	}

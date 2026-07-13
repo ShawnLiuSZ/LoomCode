@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 func TestAdapter_Kind(t *testing.T) {

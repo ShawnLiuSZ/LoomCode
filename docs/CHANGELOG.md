@@ -1,4 +1,4 @@
-# Helix CLI 版本更新日志
+# LoomCode CLI 版本更新日志
 
 > 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 规范  
 > 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)
@@ -15,10 +15,10 @@
 - `/model` 交互式模型选择器（↑↓ 移动、Enter 确认、Esc 取消）
 - `/model <name>` 直接切换指定模型
 - 模型列表从 Provider 动态获取，不再硬编码未接入厂商
-- Skills 自动加载（`~/.agents/skills` + `~/.helix/skills`）
+- Skills 自动加载（`~/.agents/skills` + `~/.loomcode/skills`）
 - `/skills` 显示内置工具 + 外部 skills（含来源标记）
 - `--session <id>` 恢复历史会话
-- `./bin/helix` 无参数直接启动 TUI
+- `./bin/loomcode` 无参数直接启动 TUI
 - `build.sh` 构建脚本（dev/release/tui/test）
 - `.gitignore` 覆盖所有构建产物
 
@@ -79,7 +79,7 @@
 - 235 个单元测试（15 个模块）
 
 ### 变更
-- 确定项目名称为 Helix
+- 确定项目名称为 LoomCode
 - 确定形态为纯 CLI 工具
 - Provider 层采用 Adapter 工厂模式
 - 测试辅助代码统一到 `internal/testutil/`
@@ -96,5 +96,5 @@
 
 ---
 
-[Unreleased]: https://github.com/ShawnLiuSZ/Helix/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/ShawnLiuSZ/Helix/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ShawnLiuSZ/loomcode/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ShawnLiuSZ/loomcode/releases/tag/v0.1.0

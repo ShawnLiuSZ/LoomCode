@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/consts"
+	"github.com/ShawnLiuSZ/loomcode/internal/consts"
 )
 
 // RetryConfig HTTP 重试配置

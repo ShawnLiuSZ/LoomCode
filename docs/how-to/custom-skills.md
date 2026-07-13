@@ -4,12 +4,12 @@
 
 ## 概述
 
-Skills 是 Helix 的扩展机制，允许您添加自定义工具和能力。
+Skills 是 LoomCode 的扩展机制，允许您添加自定义工具和能力。
 
 ## Skills 目录结构
 
 ```
-~/.helix/skills/          # 高优先级
+~/.loomcode/skills/          # 高优先级
 ~/.agents/skills/         # 低优先级
 ```
 
@@ -18,7 +18,7 @@ Skills 是 Helix 的扩展机制，允许您添加自定义工具和能力。
 ### 基本结构
 
 ```
-~/.helix/skills/
+~/.loomcode/skills/
 └── my-custom-skill/
     └── SKILL.md
 ```
@@ -45,7 +45,7 @@ Skills 是 Helix 的扩展机制，允许您添加自定义工具和能力。
 
 ## Skill 加载优先级
 
-1. `~/.helix/skills/` - 高优先级（同名覆盖）
+1. `~/.loomcode/skills/` - 高优先级（同名覆盖）
 2. `~/.agents/skills/` - 低优先级
 
 ### 示例
@@ -53,9 +53,9 @@ Skills 是 Helix 的扩展机制，允许您添加自定义工具和能力。
 ```bash
 # 两个目录都有同名 skill
 ~/.agents/skills/code-review/SKILL.md
-~/.helix/skills/code-review/SKILL.md
+~/.loomcode/skills/code-review/SKILL.md
 
-# Helix 会使用 ~/.helix/skills/code-review/SKILL.md
+# LoomCode 会使用 ~/.loomcode/skills/code-review/SKILL.md
 ```
 
 ## 查看已加载的 Skills
@@ -80,7 +80,7 @@ Skills 是 Helix 的扩展机制，允许您添加自定义工具和能力。
 
 🧩 外部 Skills (3):
 
-  📄 code-review [helix] - Code review guidelines
+  📄 code-review [loomcode] - Code review guidelines
   📄 architecture - Architecture documentation
   📄 testing - Testing best practices
 ```
@@ -114,8 +114,8 @@ my-tool-skill/
 为特定项目创建开发指南：
 
 ```bash
-mkdir -p ~/.helix/skills/my-project
-cat > ~/.helix/skills/my-project/SKILL.md << 'EOF'
+mkdir -p ~/.loomcode/skills/my-project
+cat > ~/.loomcode/skills/my-project/SKILL.md << 'EOF'
 # My Project Guidelines
 
 ## 代码规范
@@ -135,8 +135,8 @@ EOF
 将 Skills 放入项目仓库：
 
 ```bash
-mkdir -p .helix/skills/team-standards
-cat > .helix/skills/team-standards/SKILL.md << 'EOF'
+mkdir -p .loomcode/skills/team-standards
+cat > .loomcode/skills/team-standards/SKILL.md << 'EOF'
 # Team Standards
 
 ## Git 提交规范
@@ -151,8 +151,8 @@ EOF
 创建个人工作流 Skills：
 
 ```bash
-mkdir -p ~/.helix/skills/my-workflow
-cat > ~/.helix/skills/my-workflow/SKILL.md << 'EOF'
+mkdir -p ~/.loomcode/skills/my-workflow
+cat > ~/.loomcode/skills/my-workflow/SKILL.md << 'EOF'
 # My Workflow
 
 ## 每日流程
@@ -179,14 +179,14 @@ EOF
 ### 删除 Skill
 
 ```bash
-rm -rf ~/.helix/skills/old-skill
+rm -rf ~/.loomcode/skills/old-skill
 ```
 
 ### 更新 Skill
 
 ```bash
 # 编辑 SKILL.md
-vim ~/.helix/skills/my-skill/SKILL.md
+vim ~/.loomcode/skills/my-skill/SKILL.md
 ```
 
 ## 最佳实践
@@ -229,16 +229,16 @@ vim ~/.helix/skills/my-skill/SKILL.md
 **检查**：
 1. 确认目录结构正确
 2. 确认 `SKILL.md` 文件存在
-3. 重启 Helix
+3. 重启 LoomCode
 
 ### 权限问题
 
 ```bash
-chmod -R 755 ~/.helix/skills/my-skill
+chmod -R 755 ~/.loomcode/skills/my-skill
 ```
 
 ## 下一步
 
 - [内置工具列表](../reference/built-in-tools.md) - 了解内置工具
 - [MCP 插件协议](../reference/mcp-protocol.md) - 更强大的扩展机制
-- [架构概览](../explanation/architecture.md) - 理解 Helix 设计
+- [架构概览](../explanation/architecture.md) - 理解 LoomCode 设计

@@ -1,12 +1,12 @@
 # TUI 交互指南
 
-> 学习 Helix 交互式界面的操作
+> 学习 LoomCode 交互式界面的操作
 
 ## 界面概览
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ 🛠 Helix CLI | build | DeepSeek | deepseek-v4-flash        │
+│ 🛠 LoomCode CLI | build | DeepSeek | deepseek-v4-flash        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ▸ 请帮我创建一个简单的 HTTP 服务器                          │
@@ -225,7 +225,7 @@ build → plan → compose → build → ...
 
 ```bash
 # 启动时恢复指定会话
-helix --session session_1234567890
+loomcode --session session_1234567890
 ```
 
 ### 会话列表

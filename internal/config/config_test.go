@@ -120,7 +120,7 @@ func TestLoadDefault(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	t.Setenv("MIMO_API_KEY", "test-key")
 
-	// 当前目录没有 helix.toml，应返回默认配置
+	// 当前目录没有 loomcode.toml，应返回默认配置
 	cfg, err := LoadDefault()
 	if err != nil {
 		t.Fatalf("LoadDefault() error: %v", err)

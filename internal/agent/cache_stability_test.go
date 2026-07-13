@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // TestPrefixStability 验证 buildStaticSystemPrompt 在连续两次调用间字节级一致。

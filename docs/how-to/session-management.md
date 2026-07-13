@@ -4,12 +4,12 @@
 
 ## 概述
 
-Helix 支持会话持久化，允许您保存对话历史并在之后恢复。
+LoomCode 支持会话持久化，允许您保存对话历史并在之后恢复。
 
 ## 会话存储位置
 
 ```
-~/.helix/sessions/
+~/.loomcode/sessions/
 ├── session_1234567890.jsonl
 ├── session_1234567891.jsonl
 └── ...
@@ -19,10 +19,10 @@ Helix 支持会话持久化，允许您保存对话历史并在之后恢复。
 
 ### 创建会话
 
-启动 Helix 时自动创建新会话：
+启动 LoomCode 时自动创建新会话：
 
 ```bash
-helix
+loomcode
 ```
 
 ### 查看会话列表
@@ -37,7 +37,7 @@ helix
 
 ```bash
 # 启动时恢复指定会话
-helix --session session_1234567890
+loomcode --session session_1234567890
 ```
 
 ## 会话文件格式
@@ -69,7 +69,7 @@ helix --session session_1234567890
 
 ```bash
 # 昨天的工作
-helix --session session_1234567890
+loomcode --session session_1234567890
 
 # 继续之前的对话
 ```
@@ -78,17 +78,17 @@ helix --session session_1234567890
 
 ```bash
 # 复制会话文件
-cp ~/.helix/sessions/session_1234567890.jsonl ~/backup/
+cp ~/.loomcode/sessions/session_1234567890.jsonl ~/backup/
 ```
 
 ### 场景 3：共享会话
 
 ```bash
 # 导出会话
-cat ~/.helix/sessions/session_1234567890.jsonl | base64 > session.txt
+cat ~/.loomcode/sessions/session_1234567890.jsonl | base64 > session.txt
 
 # 在另一台机器导入
-base64 -d session.txt > ~/.helix/sessions/session_1234567890.jsonl
+base64 -d session.txt > ~/.loomcode/sessions/session_1234567890.jsonl
 ```
 
 ## 会话管理最佳实践
@@ -97,7 +97,7 @@ base64 -d session.txt > ~/.helix/sessions/session_1234567890.jsonl
 
 ```bash
 # 删除旧会话（保留最近 30 天）
-find ~/.helix/sessions -name "*.jsonl" -mtime +30 -delete
+find ~/.loomcode/sessions -name "*.jsonl" -mtime +30 -delete
 ```
 
 ### 命名规范
@@ -118,9 +118,9 @@ session_1234567890
 ```bash
 # 自动备份脚本
 #!/bin/bash
-BACKUP_DIR=~/backups/helix-sessions
+BACKUP_DIR=~/backups/loomcode-sessions
 mkdir -p $BACKUP_DIR
-tar -czf $BACKUP_DIR/sessions-$(date +%Y%m%d).tar.gz ~/.helix/sessions/
+tar -czf $BACKUP_DIR/sessions-$(date +%Y%m%d).tar.gz ~/.loomcode/sessions/
 ```
 
 ## 高级功能
@@ -131,24 +131,24 @@ tar -czf $BACKUP_DIR/sessions-$(date +%Y%m%d).tar.gz ~/.helix/sessions/
 
 ```bash
 # 查看会话文件
-cat ~/.helix/sessions/session_1234567890.jsonl | head -1 | jq .
+cat ~/.loomcode/sessions/session_1234567890.jsonl | head -1 | jq .
 ```
 
 ### 会话统计
 
 ```bash
 # 统计会话数量
-ls ~/.helix/sessions/*.jsonl | wc -l
+ls ~/.loomcode/sessions/*.jsonl | wc -l
 
 # 统计总消息数
-cat ~/.helix/sessions/*.jsonl | grep '"role"' | wc -l
+cat ~/.loomcode/sessions/*.jsonl | grep '"role"' | wc -l
 ```
 
 ### 会话搜索
 
 ```bash
 # 搜索包含特定内容的会话
-grep -l "用户认证" ~/.helix/sessions/*.jsonl
+grep -l "用户认证" ~/.loomcode/sessions/*.jsonl
 ```
 
 ## 故障排除
@@ -167,22 +167,22 @@ Error: decode meta: invalid character
 ### 会话未保存
 
 **检查**：
-1. 确认 `~/.helix/sessions/` 目录存在
+1. 确认 `~/.loomcode/sessions/` 目录存在
 2. 检查磁盘空间
-3. 查看 Helix 日志
+3. 查看 LoomCode 日志
 
 ### 会话文件过大
 
 ```bash
 # 压缩旧会话
-gzip ~/.helix/sessions/old-session.jsonl
+gzip ~/.loomcode/sessions/old-session.jsonl
 
 # 删除非常旧的会话
-find ~/.helix/sessions -name "*.jsonl" -mtime +90 -delete
+find ~/.loomcode/sessions -name "*.jsonl" -mtime +90 -delete
 ```
 
 ## 下一步
 
 - [环境变量管理](environment-variables.md) - 配置 API 密钥
 - [配置文件格式](../reference/config-format.md) - 完整语法
-- [架构概览](../explanation/architecture.md) - 理解 Helix 设计
+- [架构概览](../explanation/architecture.md) - 理解 LoomCode 设计

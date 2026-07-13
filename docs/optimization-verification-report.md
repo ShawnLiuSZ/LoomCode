@@ -1,4 +1,4 @@
-# Helix 优化建议 · 复核报告（验收 Round 1）
+# LoomCode 优化建议 · 复核报告（验收 Round 1）
 
 > 对照 [`optimization-recommendations.md`](optimization-recommendations.md) 的**代码级**复核（不看声明，看代码）
 > 复核日期：2026-06-19 · 复核基准：当前工作区（未提交）相对 `HEAD (7d998de)` 的全部改动

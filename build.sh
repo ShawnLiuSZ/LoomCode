@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Helix CLI 构建脚本
+# LoomCode CLI 构建脚本
 # 委托给 Makefile 执行，保持单一构建源
 
 CMD="${1:-dev}"
@@ -32,7 +32,7 @@ case "$CMD" in
     make install
     ;;
   *)
-    echo "Helix CLI Build Script"
+    echo "LoomCode CLI Build Script"
     echo ""
     echo "Usage: bash build.sh [command]"
     echo ""

@@ -1,9 +1,9 @@
-# Helix 全量 Bug 审计报告
+# LoomCode 全量 Bug 审计报告
 
-> 对 Helix（Go AI Agent CLI）进行的全代码库 bug / 安全 / 健壮性审计
+> 对 LoomCode（Go AI Agent CLI）进行的全代码库 bug / 安全 / 健壮性审计
 
 **审计时间**: 2026-06-20
-**审计范围**: `internal/**` + `cmd/helix/**` 全部非测试 Go 源码（约 11,134 行 / 56 个文件）
+**审计范围**: `internal/**` + `cmd/loomcode/**` 全部非测试 Go 源码（约 11,134 行 / 56 个文件）
 **审计方法**: `go build`（通过）→ `go vet`（无告警）→ `go test ./...`（全通过）→ 按子系统并行逐行人工审查 → 对高影响项直接核对源码
 **基线**: `main` @ `597c8f6`（工作区干净，无未提交 diff）
 
@@ -123,7 +123,7 @@
 - **修复**: 按调用**下标**而非名字做 key；预分配 `[]*Result`，goroutine 内写 `results[idx]`，按位置合并。
 
 ### H3 — TUI 会话从不落盘，退出即丢失全部对话
-- **文件**: `cmd/helix/main.go:282`（创建 Manager）+ `internal/ui/app.go`（无任何 Save 调用）
+- **文件**: `cmd/loomcode/main.go:282`（创建 Manager）+ `internal/ui/app.go`（无任何 Save 调用）
 - **问题**: `session.Manager` 被创建并注入 App，但没有任何地方把 `a.messages` 写回 `sess.Messages` 或调用 `Save()`。`/quit`、`ctrl+c`、正常退出全部丢历史。`/sessions new` 创建的会话对象同样收不到消息。
 - **修复**: 在 `streamDoneMsg`（及 `/clear`、`/compact`）时把新消息追加进活动会话并 `Save()`；`tea.Quit` 前用 `tea.Sequence(saveCmd, tea.Quit)` 落盘。
 
@@ -201,9 +201,9 @@
 
 这些位于**当前未接线或返回 mock 数据**的模块，暂不影响运行，但接线后即生效，先记录：
 
-- **`session/crypto.go:34`** — 密钥派生用 `SHA256("helix-session-"+hostname+"-"+username)`，全是公开信息，等同硬编码密钥；env-var 路径也只过一次 SHA-256 无 salt/KDF。**但该 crypto 模块当前无生产调用方，会话实际明文存储。** 接线前必须改为随机密钥 + Argon2id/scrypt + 随机 salt。
+- **`session/crypto.go:34`** — 密钥派生用 `SHA256("loomcode-session-"+hostname+"-"+username)`，全是公开信息，等同硬编码密钥；env-var 路径也只过一次 SHA-256 无 salt/KDF。**但该 crypto 模块当前无生产调用方，会话实际明文存储。** 接线前必须改为随机密钥 + Argon2id/scrypt + 随机 salt。
 - **`dashboard/websocket.go`** — WebSocket 是空实现（不 upgrade）；`WSHub.Broadcast` 是 lock/unlock 空操作；无 register/unregister 路径。实现时务必加 `CheckOrigin` 白名单、读写 deadline、连接清理。
-- **`config/config.go:170`** — `home, _ := os.UserHomeDir()` 吞错误，`$HOME` 为空时配置路径退化为 CWD 相对路径 `.helix/config.toml`，可被同目录恶意配置注入。
+- **`config/config.go:170`** — `home, _ := os.UserHomeDir()` 吞错误，`$HOME` 为空时配置路径退化为 CWD 相对路径 `.loomcode/config.toml`，可被同目录恶意配置注入。
 - **`skills/manager.go:48`** — 技能目录用 `entry.IsDir()`（跟随符号链接），符号链接可使技能内容读取目录外文件并注入 prompt。改用 `entry.Type()` 排除符号链接或 `EvalSymlinks` + 包含性校验。
 - **`memory/semantic.go:26,226`** — `Document.Vector` 带 `json:"-"`，Save/Load 往返后所有向量为 nil，Search 全部跳过——索引静默失效直到重新 embed。
 - **`provider/loadbalancer.go:130`** — `SetWeight` 接受负权重，`weightedRandom` 的 `rand.Intn(totalWeight)` 在 totalWeight≤0 时 panic。

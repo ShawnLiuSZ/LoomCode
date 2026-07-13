@@ -12,7 +12,7 @@ type Skill struct {
 	Name        string
 	Path        string
 	Description string
-	Source      string // "helix" 或 "agents"
+	Source      string // "loomcode" 或 "agents"
 }
 
 // Manager skills 管理器
@@ -26,7 +26,7 @@ func NewManager() *Manager {
 }
 
 // Load 加载所有 skills
-// 优先级：~/.helix/skills > ~/.agents/skills
+// 优先级：~/.loomcode/skills > ~/.agents/skills
 func (m *Manager) Load() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -37,9 +37,9 @@ func (m *Manager) Load() error {
 	agentsDir := filepath.Join(home, ".agents", "skills")
 	m.loadFromDir(agentsDir, "agents")
 
-	// 2. 再加载 ~/.helix/skills（高优先级，覆盖同名）
-	helixDir := filepath.Join(home, ".helix", "skills")
-	m.loadFromDir(helixDir, "helix")
+	// 2. 再加载 ~/.loomcode/skills（高优先级，覆盖同名）
+	loomcodeDir := filepath.Join(home, ".loomcode", "skills")
+	m.loadFromDir(loomcodeDir, "loomcode")
 
 	return nil
 }
@@ -66,12 +66,12 @@ func (m *Manager) loadFromDir(dir, source string) {
 		// 读取 SKILL.md 获取描述
 		desc := m.readDescription(skillPath)
 
-		// ~/.helix/skills 优先：如果已存在且当前是 agents 源，跳过
+		// ~/.loomcode/skills 优先：如果已存在且当前是 agents 源，跳过
 		if _, ok := m.skills[name]; ok {
 			if source == "agents" {
-				continue // helix 优先
+				continue // loomcode 优先
 			}
-			// 否则覆盖（helix 覆盖 agents）
+			// 否则覆盖（loomcode 覆盖 agents）
 		}
 
 		m.skills[name] = &Skill{

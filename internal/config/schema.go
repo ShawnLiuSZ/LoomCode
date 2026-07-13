@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 )
 
-// GenerateJSONSchema 返回描述 helix.toml 配置结构的 JSON Schema（Draft 7）字符串。
+// GenerateJSONSchema 返回描述 loomcode.toml 配置结构的 JSON Schema（Draft 7）字符串。
 // 编辑器可据此提供自动补全与校验。description 字段源自 Go 结构体注释。
 func GenerateJSONSchema() string {
 	schema := map[string]interface{}{
 		"$schema":     "http://json-schema.org/draft-07/schema#",
-		"$id":         "https://github.com/ShawnLiuSZ/Helix/schema/helix.toml.json",
-		"title":       "Helix CLI Config",
-		"description": "Helix CLI 顶层配置结构（helix.toml）",
+		"$id":         "https://github.com/ShawnLiuSZ/loomcode/schema/loomcode.toml.json",
+		"title":       "LoomCode CLI Config",
+		"description": "LoomCode CLI 顶层配置结构（loomcode.toml）",
 		"type":        "object",
 		"properties": map[string]interface{}{
 			"default_provider": map[string]interface{}{
@@ -228,14 +228,14 @@ func GenerateJSONSchema() string {
 	return string(data)
 }
 
-// WriteSchemaFile writes the JSON Schema to ~/.helix/schema.json.
+// WriteSchemaFile writes the JSON Schema to ~/.loomcode/schema.json.
 // Returns the path written.
 func WriteSchemaFile() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".helix")
+	dir := filepath.Join(home, ".loomcode")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}

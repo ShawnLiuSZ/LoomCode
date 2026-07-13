@@ -1,4 +1,4 @@
-# Helix CLI 功能完整性审查
+# LoomCode CLI 功能完整性审查
 
 > 审查日期: 2026-06-18  
 > 版本: v0.1.0  
@@ -41,7 +41,7 @@
 
 ### MiMo-Code 功能对比
 
-| 功能 | MiMo-Code | Helix CLI | 状态 |
+| 功能 | MiMo-Code | LoomCode CLI | 状态 |
 |------|-----------|-----------|------|
 | Multiple Agents (build/plan/compose) | ✅ | ✅ | 已实现 |
 | Persistent Memory (SQLite FTS5) | ✅ | ✅ | 已实现 |
@@ -56,7 +56,7 @@
 
 ### DeepSeek-Reasonix 功能对比
 
-| 功能 | Reasonix | Helix CLI | 状态 |
+| 功能 | Reasonix | LoomCode CLI | 状态 |
 |------|----------|-----------|------|
 | **Cache-first Loop** | ✅ 99.82% cache hit | ⚠️ 基础 TTL | 需优化 |
 | **Tool-call Repair** | ✅ | ⚠️ 基础实现 | 需完善 |
@@ -748,15 +748,15 @@ func (a *DistributedAgent) Aggregate(results []Result) Result {
 
 2. **工具调用修复过于简单**
    - Reasonix 有完整的 tool-call repair 流水线
-   - Helix 仅做基础 JSON 解析修复
+   - LoomCode 仅做基础 JSON 解析修复
 
 3. **缓存命中率未优化**
    - Reasonix 实现 99.82% cache hit
-   - Helix 仅做基础 TTL 感知
+   - LoomCode 仅做基础 TTL 感知
 
 4. **语音输入未实现**
    - MiMo-Code 有完整的 TenVAD + MiMo ASR 集成
-   - Helix 仅定义接口，无实际实现
+   - LoomCode 仅定义接口，无实际实现
 
 ---
 

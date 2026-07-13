@@ -1,4 +1,4 @@
-# Helix 优化建议 · 复核报告（验收 Round 2）
+# LoomCode 优化建议 · 复核报告（验收 Round 2）
 
 > 承接 [Round 1 复核](optimization-verification-report.md) 的两项返工要求（R-1 CI/版本、R-2 P0-3 上下文截断）的代码级确认
 > 复核日期：2026-06-19 · 基准：commit `53c1751`（已提交）

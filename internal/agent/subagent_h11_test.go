@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // H11 第一半：完成后再次 Run 不得 panic（close of closed channel），且 Run 是一次性的。

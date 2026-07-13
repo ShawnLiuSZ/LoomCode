@@ -20,7 +20,7 @@ type Crypto struct {
 }
 
 // NewCrypto 创建加密器
-// 密钥来源优先级：HELIX_ENCRYPTION_KEY 环境变量 > 默认派生密钥
+// 密钥来源优先级：LOOMCODE_ENCRYPTION_KEY 环境变量 > 默认派生密钥
 func NewCrypto() *Crypto {
 	key := deriveKey()
 	return &Crypto{key: key}
@@ -37,7 +37,7 @@ func NewCryptoWithKey(key string) *Crypto {
 // 接线前必须改为：随机密钥 + Argon2id/scrypt + 随机 salt。
 func deriveKey() []byte {
 	// 从环境变量读取（推荐方式）
-	if envKey := os.Getenv("HELIX_ENCRYPTION_KEY"); envKey != "" {
+	if envKey := os.Getenv("LOOMCODE_ENCRYPTION_KEY"); envKey != "" {
 		hash := sha256.Sum256([]byte(envKey))
 		return hash[:]
 	}
@@ -47,7 +47,7 @@ func deriveKey() []byte {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		// 极端回退：用时间戳 + PID（不安全，但比 panic 好）
-		seed := fmt.Sprintf("helix-session-%d-%d", time.Now().UnixNano(), os.Getpid())
+		seed := fmt.Sprintf("loomcode-session-%d-%d", time.Now().UnixNano(), os.Getpid())
 		hash := sha256.Sum256([]byte(seed))
 		return hash[:]
 	}

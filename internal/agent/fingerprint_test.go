@@ -10,8 +10,8 @@ import (
 //   - 不同输入产生不同指纹
 //   - 输出为 16 字符 hex（SHA256 前 8 字节）
 func TestComputeFingerprint(t *testing.T) {
-	a := "You are Helix, an AI coding assistant."
-	b := "You are Helix, an AI coding assistant."
+	a := "You are LoomCode, an AI coding assistant."
+	b := "You are LoomCode, an AI coding assistant."
 	c := "You are a different assistant."
 
 	fa := ComputeFingerprint(a)

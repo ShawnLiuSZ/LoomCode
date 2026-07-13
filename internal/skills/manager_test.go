@@ -14,19 +14,19 @@ func TestManager_Load(t *testing.T) {
 	os.MkdirAll(agentsDir, 0755)
 	os.WriteFile(filepath.Join(agentsDir, "SKILL.md"), []byte("# Test Skill\nA test skill for testing"), 0644)
 
-	// 创建 ~/.helix/skills/helix-skill/SKILL.md
-	helixDir := filepath.Join(home, ".helix", "skills", "helix-skill")
-	os.MkdirAll(helixDir, 0755)
-	os.WriteFile(filepath.Join(helixDir, "SKILL.md"), []byte("# Helix Skill\nA helix-specific skill"), 0644)
+	// 创建 ~/.loomcode/skills/loomcode-skill/SKILL.md
+	loomcodeDir := filepath.Join(home, ".loomcode", "skills", "loomcode-skill")
+	os.MkdirAll(loomcodeDir, 0755)
+	os.WriteFile(filepath.Join(loomcodeDir, "SKILL.md"), []byte("# LoomCode Skill\nA loomcode-specific skill"), 0644)
 
 	// 覆盖测试：同名 skill 在两个目录都存在
 	overrideDir := filepath.Join(home, ".agents", "skills", "override-skill")
 	os.MkdirAll(overrideDir, 0755)
 	os.WriteFile(filepath.Join(overrideDir, "SKILL.md"), []byte("# Agents Override\nFrom agents"), 0644)
 
-	helixOverrideDir := filepath.Join(home, ".helix", "skills", "override-skill")
-	os.MkdirAll(helixOverrideDir, 0755)
-	os.WriteFile(filepath.Join(helixOverrideDir, "SKILL.md"), []byte("# Helix Override\nFrom helix"), 0644)
+	loomcodeOverrideDir := filepath.Join(home, ".loomcode", "skills", "override-skill")
+	os.MkdirAll(loomcodeOverrideDir, 0755)
+	os.WriteFile(filepath.Join(loomcodeOverrideDir, "SKILL.md"), []byte("# LoomCode Override\nFrom loomcode"), 0644)
 
 	// 设置 HOME 环境变量
 	t.Setenv("HOME", home)
@@ -41,25 +41,25 @@ func TestManager_Load(t *testing.T) {
 		t.Errorf("Count() = %d, want 3", m.Count())
 	}
 
-	// 验证 helix-skill
-	s, ok := m.Get("helix-skill")
+	// 验证 loomcode-skill
+	s, ok := m.Get("loomcode-skill")
 	if !ok {
-		t.Fatal("helix-skill not found")
+		t.Fatal("loomcode-skill not found")
 	}
-	if s.Source != "helix" {
-		t.Errorf("helix-skill source = %q, want helix", s.Source)
+	if s.Source != "loomcode" {
+		t.Errorf("loomcode-skill source = %q, want loomcode", s.Source)
 	}
 
-	// 验证 override-skill 来自 helix
+	// 验证 override-skill 来自 loomcode
 	os2, ok := m.Get("override-skill")
 	if !ok {
 		t.Fatal("override-skill not found")
 	}
-	if os2.Source != "helix" {
-		t.Errorf("override-skill source = %q, want helix (should override agents)", os2.Source)
+	if os2.Source != "loomcode" {
+		t.Errorf("override-skill source = %q, want loomcode (should override agents)", os2.Source)
 	}
-	if os2.Description != "Helix Override" {
-		t.Errorf("override-skill description = %q, want 'Helix Override'", os2.Description)
+	if os2.Description != "LoomCode Override" {
+		t.Errorf("override-skill description = %q, want 'LoomCode Override'", os2.Description)
 	}
 }
 
@@ -67,7 +67,7 @@ func TestManager_List(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	dir := filepath.Join(home, ".helix", "skills")
+	dir := filepath.Join(home, ".loomcode", "skills")
 	os.MkdirAll(filepath.Join(dir, "skill-a"), 0755)
 	os.WriteFile(filepath.Join(dir, "skill-a", "SKILL.md"), []byte("# Skill A"), 0644)
 	os.MkdirAll(filepath.Join(dir, "skill-b"), 0755)
@@ -103,7 +103,7 @@ func TestSkill_Content(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	dir := filepath.Join(home, ".helix", "skills", "readme-skill")
+	dir := filepath.Join(home, ".loomcode", "skills", "readme-skill")
 	os.MkdirAll(dir, 0755)
 	content := "# README Skill\n\nThis is the full content of the skill."
 	os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)

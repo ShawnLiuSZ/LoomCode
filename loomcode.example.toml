@@ -1,0 +1,121 @@
+# LoomCode CLI 示例配置
+# 复制此文件为 loomcode.toml 并根据需要修改
+
+# 默认 Provider（可选，不填则使用第一个 provider）
+default_provider = "deepseek"
+
+# ============================================================
+# Provider 定义
+# ============================================================
+
+[[providers]]
+name         = "deepseek"
+display_name = "DeepSeek"
+kind         = "deepseek"
+base_url     = "https://api.deepseek.com"
+api_key_env  = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+
+  [[providers.models]]
+  id             = "deepseek-v4-flash"
+  name           = "DeepSeek V4 Flash"
+  context_window = 131072
+
+  [providers.models.cost]
+  input        = 0.14
+  cached_input = 0.014
+  output       = 0.28
+
+  [providers.models.capabilities]
+  tool_call    = true
+  prefix_cache = true
+
+  [[providers.models]]
+  id             = "deepseek-v4-pro"
+  name           = "DeepSeek V4 Pro"
+  context_window = 131072
+
+  [providers.models.cost]
+  input        = 0.55
+  cached_input = 0.055
+  output       = 2.19
+
+  [providers.models.capabilities]
+  reasoning   = true
+  tool_call   = true
+  prefix_cache = true
+
+# ============================================================
+# MiMo Provider（可选）
+# ============================================================
+
+# [[providers]]
+# name         = "mimo"
+# display_name = "MiMo"
+# kind         = "mimo"
+# base_url     = "https://api.mimo.xiaomi.com/v1"
+# api_key_env  = "MIMO_API_KEY"
+# default_model = "mimo-v2.5-pro"
+#
+#   [[providers.models]]
+#   id   = "mimo-v2.5-pro"
+#   name = "MiMo V2.5 Pro"
+#   context_window = 262144
+#
+#   [providers.models.capabilities]
+#   reasoning = true
+#   tool_call = true
+#   voice     = true
+
+# ============================================================
+# 自定义 OpenAI 兼容 Provider
+# ============================================================
+
+# [[providers]]
+# name         = "my-custom"
+# display_name = "自定义厂商"
+# kind         = "openai"
+# base_url     = "https://api.example.com/v1"
+# api_key_env  = "MY_API_KEY"
+#
+#   [[providers.models]]
+#   id   = "my-model"
+#   name = "My Model"
+#   context_window = 32768
+#
+#   [providers.models.capabilities]
+#   tool_call = true
+
+# ============================================================
+# 插件（MCP 服务器）
+# ============================================================
+
+# [[plugins]]
+# name    = "my-tool"
+# command = "node"
+# args    = ["./mcp-server.js"]
+
+# ============================================================
+# 权限
+# ============================================================
+
+# [permissions]
+# shell_allowlist = ["git", "npm", "go", "ls", "cat", "find . -name"]
+
+# ============================================================
+# 搜索
+# ============================================================
+
+# [search]
+# engine = "bing"  # bing | baidu | searxng | tavily | perplexity
+
+# ============================================================
+# Agent（planner/executor 分离 session 架构）
+# 参考 DeepSeek-Reasonix SPEC.md §3.5
+# ============================================================
+
+# [agent]
+# planner_model = "deepseek-v4-pro"
+# # 非空时启用分离 session：planner 用此模型在独立 session 中规划，
+# # executor 用默认模型在独立 session 中执行。
+# # 留空则退化为单 session 模式（与 MultiAgent 行为一致）。

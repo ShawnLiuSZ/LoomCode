@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
 )
 
 func TestSetEnvProvider(t *testing.T) {
@@ -54,13 +54,13 @@ func TestBashTool_InjectsEnv(t *testing.T) {
 	orig := globalEnvProvider
 	defer func() { globalEnvProvider = orig }()
 
-	t.Setenv("HELIX_TEST_KEY", "test_value")
+	t.Setenv("LOOMCODE_TEST_KEY", "test_value")
 	p := &testutil.TestEnvProvider{Env: os.Environ()}
 	SetEnvProvider(p)
 
 	tl := &BashTool{}
 	result, err := tl.Execute(t.Context(), map[string]any{
-		"command": "echo $HELIX_TEST_KEY",
+		"command": "echo $LOOMCODE_TEST_KEY",
 	})
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)

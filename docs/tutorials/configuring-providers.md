@@ -4,7 +4,7 @@
 
 ## 概述
 
-Helix 支持多种 AI 模型 Provider，包括：
+LoomCode 支持多种 AI 模型 Provider，包括：
 
 - **DeepSeek** - DeepSeek V4 系列模型
 - **OpenAI** - GPT-4、GPT-3.5 等
@@ -25,13 +25,13 @@ export OPENAI_API_KEY="sk-your-openai-key"
 # MiMo
 export MIMO_API_KEY="sk-your-mimo-key"
 
-# 启动 Helix
-helix
+# 启动 LoomCode
+loomcode
 ```
 
 ### 方式二：配置文件（推荐）
 
-创建 `helix.toml`：
+创建 `loomcode.toml`：
 
 ```toml
 default_provider = "deepseek"
@@ -137,10 +137,10 @@ name = "MiMo V2"
 
 ```bash
 # 指定 Provider
-helix --provider openai
+loomcode --provider openai
 
 # 指定 Provider 和模型
-helix --provider deepseek --model deepseek-v4-pro
+loomcode --provider deepseek --model deepseek-v4-pro
 ```
 
 ### TUI 中切换
@@ -152,16 +152,16 @@ helix --provider deepseek --model deepseek-v4-pro
 
 ## 配置文件位置
 
-Helix 按优先级查找配置文件：
+LoomCode 按优先级查找配置文件：
 
-1. `./helix.toml` - 项目目录（最高优先级）
-2. `~/.helix/config.toml` - 全局配置
+1. `./loomcode.toml` - 项目目录（最高优先级）
+2. `~/.loomcode/config.toml` - 全局配置
 
 ## 环境变量加载
 
 按优先级加载（后覆盖前）：
 
-1. `~/.helix/.env` - 全局环境变量
+1. `~/.loomcode/.env` - 全局环境变量
 2. `./.env` - 项目环境变量
 3. `./.env.local` - 本地覆盖（不提交 git）
 4. `--env-file custom.env` - CLI 指定（最高优先级）
@@ -198,6 +198,6 @@ Error: model "xxx" not found
 
 ## 下一步
 
-- [自定义 Skills](custom-skills.md) - 扩展 Helix 功能
+- [自定义 Skills](custom-skills.md) - 扩展 LoomCode 功能
 - [会话管理](session-management.md) - 保存对话历史
 - [配置文件格式参考](../reference/config-format.md) - 完整语法说明

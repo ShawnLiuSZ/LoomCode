@@ -1,4 +1,4 @@
-# Helix 优化建议 · 复核报告（验收 Round 3）
+# LoomCode 优化建议 · 复核报告（验收 Round 3）
 
 > 对照 Round 1/2 复核意见的代码级复核
 > 复核日期：2026-06-19 · 复核基准：`HEAD (f29e339)` + 未推送的 CI workflow commit

@@ -9,7 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // mockMCPSSEServer 返回一个最小可用的 MCP-over-HTTP/SSE 服务器：

@@ -1,6 +1,6 @@
 # Agent 模式
 
-> Helix 支持四种 Agent 模式，适用于不同场景。
+> LoomCode 支持四种 Agent 模式，适用于不同场景。
 
 ## 模式列表
 

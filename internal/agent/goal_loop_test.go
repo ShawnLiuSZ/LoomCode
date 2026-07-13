@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // The goal judge is an LLM call. It must NOT run on a fixed cadence mid-loop

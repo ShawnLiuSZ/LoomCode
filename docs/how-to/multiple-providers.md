@@ -13,7 +13,7 @@
 
 ### 1. 创建配置文件
 
-创建 `helix.toml`：
+创建 `loomcode.toml`：
 
 ```toml
 default_provider = "deepseek"
@@ -83,7 +83,7 @@ MIMO_API_KEY=sk-your-mimo-key
 ### 3. 验证配置
 
 ```bash
-helix run "Hello"
+loomcode run "Hello"
 ```
 
 ## 使用方式
@@ -92,13 +92,13 @@ helix run "Hello"
 
 ```bash
 # 使用 DeepSeek（默认）
-helix run "任务描述"
+loomcode run "任务描述"
 
 # 使用 OpenAI
-helix --provider openai run "任务描述"
+loomcode --provider openai run "任务描述"
 
 # 使用 MiMo
-helix --provider mimo run "任务描述"
+loomcode --provider mimo run "任务描述"
 ```
 
 ### TUI 中切换
@@ -113,7 +113,7 @@ helix --provider mimo run "任务描述"
 ### 指定 Provider 和模型
 
 ```bash
-helix --provider openai --model gpt-4o-mini
+loomcode --provider openai --model gpt-4o-mini
 ```
 
 ## 最佳实践
@@ -143,7 +143,7 @@ helix --provider openai --model gpt-4o-mini
 
 ```bash
 # 自动切换到备用
-helix --provider openai run "任务"
+loomcode --provider openai run "任务"
 ```
 
 ## 故障排除
@@ -165,7 +165,7 @@ Error: api error (status 503): Service Unavailable
 **解决**：切换到其他 Provider
 
 ```bash
-helix --provider deepseek run "任务"
+loomcode --provider deepseek run "任务"
 ```
 
 ## 下一步

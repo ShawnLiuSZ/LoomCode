@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // plannerSystemPrompt 规划器专用系统提示。
 // planner 只分析、用只读工具探查代码库，产出结构化计划文本，不执行任何写操作。
-const plannerSystemPrompt = `You are Helix in Planner mode.
+const plannerSystemPrompt = `You are LoomCode in Planner mode.
 
 Your role is to analyze the task and the codebase, then produce a clear, step-by-step plan.
 You have READ-ONLY access to tools (read_file, grep, glob, git_status, git_diff, git_log, recall_memory, skill).

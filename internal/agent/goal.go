@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 // GoalStopCondition 停止条件管理器

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // mcpClient 抽象 stdio 与 SSE(HTTP) 两种传输，使 manager 能用同一套逻辑

@@ -1,4 +1,4 @@
-# Helix CLI 基础示例
+# LoomCode CLI 基础示例
 
 ## 快速开始
 
@@ -6,19 +6,19 @@
 
 ```bash
 # 从源码构建
-git clone https://github.com/ShawnLiuSZ/Helix.git
-cd Helix
+git clone https://github.com/ShawnLiuSZ/loomcode.git
+cd LoomCode
 make build
 
 # 或使用 Go install
-go install github.com/ShawnLiuSZ/Helix/cmd/helix@latest
+go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 ```
 
 ### 2. 配置
 
 ```bash
 # 复制配置模板
-cp helix.example.toml helix.toml
+cp loomcode.example.toml loomcode.toml
 
 # 设置 API Key
 export DEEPSEEK_API_KEY="sk-your-key-here"
@@ -28,13 +28,13 @@ export DEEPSEEK_API_KEY="sk-your-key-here"
 
 ```bash
 # 启动交互式 TUI
-./bin/helix
+./bin/loomcode
 
 # 执行单次任务
-./bin/helix run "创建一个 hello.go 文件"
+./bin/loomcode run "创建一个 hello.go 文件"
 
 # 启动 Web Dashboard
-./bin/helix dashboard
+./bin/loomcode dashboard
 ```
 
 ## 功能演示
@@ -43,33 +43,33 @@ export DEEPSEEK_API_KEY="sk-your-key-here"
 
 ```bash
 # 读取文件
-./bin/helix run "读取 main.go 的内容"
+./bin/loomcode run "读取 main.go 的内容"
 
 # 创建文件
-./bin/helix run "创建一个简单的 HTTP 服务器"
+./bin/loomcode run "创建一个简单的 HTTP 服务器"
 
 # 编辑文件
-./bin/helix run "在 main.go 中添加日志功能"
+./bin/loomcode run "在 main.go 中添加日志功能"
 ```
 
 ### 代码搜索
 
 ```bash
 # 搜索代码
-./bin/helix run "搜索所有包含 TODO 的文件"
+./bin/loomcode run "搜索所有包含 TODO 的文件"
 
 # 查找函数
-./bin/helix run "找到所有处理 HTTP 请求的函数"
+./bin/loomcode run "找到所有处理 HTTP 请求的函数"
 ```
 
 ### 命令执行
 
 ```bash
 # 运行测试
-./bin/helix run "运行所有单元测试"
+./bin/loomcode run "运行所有单元测试"
 
 # 构建项目
-./bin/helix run "构建并验证项目"
+./bin/loomcode run "构建并验证项目"
 ```
 
 ## TUI 快捷键

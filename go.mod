@@ -1,4 +1,4 @@
-module github.com/ShawnLiuSZ/Helix
+module github.com/ShawnLiuSZ/loomcode
 
 go 1.25.0
 

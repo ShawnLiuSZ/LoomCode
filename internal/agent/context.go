@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 // MemoryProvider 提供需注入系统提示的长期记忆（项目知识、用户偏好）。
@@ -96,7 +96,7 @@ func listDir(root string) []string {
 }
 
 // archiveDroppedMessages 把压缩时被丢弃的消息段归档到
-// ~/.helix/archive/<session_id>/<timestamp>.jsonl，便于事后追溯。
+// ~/.loomcode/archive/<session_id>/<timestamp>.jsonl，便于事后追溯。
 // 任何失败都只记录日志告警，绝不中断压缩流程。
 // Agent 暂未持久化 session_id，这里用时间戳生成临时唯一标识，避免改动结构体。
 func (a *Agent) archiveDroppedMessages(start, cut int) {
@@ -118,7 +118,7 @@ func (a *Agent) archiveDroppedMessages(start, cut int) {
 		return
 	}
 	sessionID := fmt.Sprintf("session_%d", time.Now().UnixNano())
-	archiveDir := filepath.Join(home, ".helix", "archive", sessionID)
+	archiveDir := filepath.Join(home, ".loomcode", "archive", sessionID)
 	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
 		log.Printf("archive: mkdir %s failed: %v", archiveDir, err)
 		return

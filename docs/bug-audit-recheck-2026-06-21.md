@@ -1,4 +1,4 @@
-# Helix Bug 修复复查报告
+# LoomCode Bug 修复复查报告
 
 > 对 `docs/bug-audit-report-2026-06-20.md` 中 21 个编号问题 + 6 个 Low 项 + 新增 WebSocket 功能的逐项修复复查
 
@@ -31,7 +31,7 @@
 ### C2 — 文件工具仍无任何路径限制 / 不走权限护栏（Critical）
 - **文件**: `internal/tool/file_tools.go:33,67,102,115`
 - **现状**: 三个工具仍是空结构体 `struct{}`，`Execute` 把模型给的 `path` 直接交给 `os.ReadFile(path)` / `os.WriteFile(path, …, 0644)`。无 workspace 根、无 `filepath.Clean/Rel` 包含性校验、无 `EvalSymlinks`、**完全不调用** `internal/control` 权限检查。
-- **核实**: `cmd/helix/main.go:128-132,273-277` 只对 `*tool.BashTool` 调了 `SetPermissionChecker`，三个文件工具连这个方法都没有。`internal/control/permission.go:36-42` 其实已支持 `path` 检查，但从未接线。
+- **核实**: `cmd/loomcode/main.go:128-132,273-277` 只对 `*tool.BashTool` 调了 `SetPermissionChecker`，三个文件工具连这个方法都没有。`internal/control/permission.go:36-42` 其实已支持 `path` 检查，但从未接线。
 - **仍可利用**: `read_file /etc/passwd`、`write_file ../../.ssh/authorized_keys`、符号链接逃逸全部畅通。这是报告里最严重的一项，**原样未动**。
 - **最小修复**: 给三个结构体加 `root string` + `permission PermissionChecker`；`Execute` 内 `abs := filepath.Abs(filepath.Join(root, path))`，`rel,_ := filepath.Rel(root, abs)`，`strings.HasPrefix(rel,"..")` 即拒绝；`EvalSymlinks` 再校验一次；最后过一遍与 bash 相同的 `permission.Check`。两处 main.go 像 bash 一样接线。
 - **附带**: `write_file`/`edit_file` 仍写 `0644`，与 M5（会话文件已改 0600）方向不一致。
@@ -93,7 +93,7 @@
   并在读满 1MB 后立即 `cmd.Cancel()`/后台 drain，避免 hang 到超时。
 
 ### H3 — 会话落盘管道已搭，但默认用户仍丢历史（High，头号 bug 只修一半）
-- **文件**: `cmd/helix/main.go:279-302`、`internal/ui/app.go:199,288,298,371,475`
+- **文件**: `cmd/loomcode/main.go:279-302`、`internal/ui/app.go:199,288,298,371,475`
 - **已修复**: `saveSession()` 经 `AddMessage`+`Save()` 实现，并接到 `streamDone`/`streamError`/`ctrl+c`。
 - **两个真实缺口**:
   1. **启动从不创建活动会话**: main.go 创建并注入 Manager 但**从不 `Create()`**；`activeSess` 仅在 `--session <id>` 或手动 `/sessions new` 时才有。普通首次会话 `saveSession()` 在 `app.go:199`（`activeSess==nil`）直接 return——**什么都没存**。
@@ -108,7 +108,7 @@
 
 ### Low — config `UserHomeDir` 回退仍不安全
 - **文件**: `internal/config/config.go:169-177`
-- **现状**: 错误从 `_` 改为显式检查，但**危险回退原样保留**——HOME 为空时 `return cwd`，配置路径退化为 CWD 相对 `./.helix/config.toml`（代码注释自己写了"可能被恶意配置注入"）。漏洞未闭合。
+- **现状**: 错误从 `_` 改为显式检查，但**危险回退原样保留**——HOME 为空时 `return cwd`，配置路径退化为 CWD 相对 `./.loomcode/config.toml`（代码注释自己写了"可能被恶意配置注入"）。漏洞未闭合。
 - **最小修复**: HOME 不可用时返回错误 / 跳过用户配置路径，绝不回退 cwd。
 
 ### Low — crypto 密钥派生：公开信息派生已去除，但仍无 KDF 且未接线
@@ -192,8 +192,8 @@
 | 项 | 修复要点 | 文件 |
 |----|---------|------|
 | **C1** | `splitShellCommand` 分隔符补全：`\n ; && \|\| \| & $( ` ( ) >> > <`，命令替换/反引号/重定向/换行都分词后逐段校验 argv0 | `control/allowlist.go` |
-| **H6** | Auto 模式不再无条件放行：白名单内放行、其余拒绝。按用户选择的"**工作区内放行**"模型，默认 `allowedPaths=[cwd]` + 安全 shell 白名单（ls/cat/grep/git/go/… 等 12 项） | `control/gate.go`、`cmd/helix/main.go` |
-| **C2** | 文件工具新增 `root`+`PermissionChecker`：`resolveWithinRoot` 做 `filepath.Rel` 包含性校验 + `EvalSymlinks` 防符号链接逃逸（含 root 自身规范化，兼容 macOS `/var`→`/private/var`）；read/write/edit 均接权限链；两处 main.go 统一接线 | `tool/file_tools.go`、`cmd/helix/main.go` |
+| **H6** | Auto 模式不再无条件放行：白名单内放行、其余拒绝。按用户选择的"**工作区内放行**"模型，默认 `allowedPaths=[cwd]` + 安全 shell 白名单（ls/cat/grep/git/go/… 等 12 项） | `control/gate.go`、`cmd/loomcode/main.go` |
+| **C2** | 文件工具新增 `root`+`PermissionChecker`：`resolveWithinRoot` 做 `filepath.Rel` 包含性校验 + `EvalSymlinks` 防符号链接逃逸（含 root 自身规范化，兼容 macOS `/var`→`/private/var`）；read/write/edit 均接权限链；两处 main.go 统一接线 | `tool/file_tools.go`、`cmd/loomcode/main.go` |
 | **H11** | `Run` 改为一次性（守卫 `status != StatusPending`），杜绝二次 close(done) panic；新增 `SpawnChild` 设置 `ParentID/Depth` 并限制 `maxSubAgentDepth=3` | `agent/subagent.go` |
 | **R1** | LSP `sendNotification` 恢复 `Content-Length` 分帧（与 `call` 一致），删除裸换行 | `lsp/client.go` |
 | **R2** | `isAllowedOrigin` 改 `net/url` 精确 host 匹配（堵 `localhost.evil.com` 前缀绕过）；读 deadline 移入读循环每次刷新（不再 60s 误杀健康连接） | `dashboard/websocket.go` |

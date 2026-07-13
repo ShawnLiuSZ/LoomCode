@@ -1,4 +1,4 @@
-# Helix 插件开发示例
+# LoomCode 插件开发示例
 
 ## 插件结构
 
@@ -29,7 +29,7 @@ my-plugin/
 ```go
 package main
 
-import "github.com/ShawnLiuSZ/Helix/internal/mcp"
+import "github.com/ShawnLiuSZ/loomcode/internal/mcp"
 
 type MyPlugin struct {
     info   mcp.PluginInfo
@@ -66,7 +66,7 @@ func (p *MyPlugin) GetState() mcp.PluginState {
 package main
 
 import (
-    "github.com/ShawnLiuSZ/Helix/internal/mcp"
+    "github.com/ShawnLiuSZ/loomcode/internal/mcp"
 )
 
 func main() {

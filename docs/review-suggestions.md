@@ -1,4 +1,4 @@
-# Helix CLI 审查建议
+# LoomCode CLI 审查建议
 
 > 本文档记录代码审查中发现的问题和改进建议，供后续迭代参考。
 
@@ -73,7 +73,7 @@
 
 ### 待优化
 
-- [x] 支持 macOS Keychain / Windows Credential Manager（通过 HELIX_ENCRYPTION_KEY 环境变量）
+- [x] 支持 macOS Keychain / Windows Credential Manager（通过 LOOMCODE_ENCRYPTION_KEY 环境变量）
 - [x] 会话文件加密存储（AES-256-GCM）
 
 ---

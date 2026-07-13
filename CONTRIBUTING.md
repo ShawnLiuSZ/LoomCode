@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 Helix CLI 的关注！本文档将帮助你了解如何参与项目贡献。
+感谢你对 LoomCode CLI 的关注！本文档将帮助你了解如何参与项目贡献。
 
 ---
 
@@ -18,7 +18,7 @@
 
 1. 在 GitHub Issues 中搜索是否已有相同问题
 2. 使用 Bug 报告模板，提供：
-   - 环境信息（OS、Go 版本、Helix 版本）
+   - 环境信息（OS、Go 版本、LoomCode 版本）
    - 复现步骤
    - 期望行为 vs 实际行为
    - 相关日志或截图
@@ -38,8 +38,8 @@
 brew install go
 
 # 克隆仓库
-git clone https://github.com/ShawnLiuSZ/Helix.git
-cd helix
+git clone https://github.com/ShawnLiuSZ/loomcode.git
+cd loomcode
 
 # 安装开发工具
 make dev-setup
@@ -48,7 +48,7 @@ make dev-setup
 #### 2. 选择任务
 
 - 查看 Issues 中 `good first issue` 标签的任务
-- 查看 [开发计划](./docs/HELIX_PLAN.md) 中未完成的 Phase 任务
+- 查看 [开发计划](./docs/LOOMCODE_PLAN.md) 中未完成的 Phase 任务
 - 较大的改动请先创建 Issue 讨论方案
 
 #### 3. 创建分支
@@ -61,7 +61,7 @@ git checkout -b fix/your-bug-fix
 
 #### 4. 开发
 
-- 遵循 [架构设计](./docs/HELIX_ARCHITECTURE.md) 中的设计原则
+- 遵循 [架构设计](./docs/LOOMCODE_ARCHITECTURE.md) 中的设计原则
 - 阅读 [CODEBUDDY.md](./CODEBUDDY.md) 了解构建命令和架构概要
 
 **代码风格：**
@@ -81,7 +81,7 @@ git checkout -b fix/your-bug-fix
 
 #### 5. 测试
 
-- 阅读 [测试指南](./docs/HELIX_TEST_GUIDE.md)
+- 阅读 [测试指南](./docs/LOOMCODE_TEST_GUIDE.md)
 - 新功能必须包含测试
 - Bug 修复必须包含回归测试
 - 运行 `make test` 确保全部通过

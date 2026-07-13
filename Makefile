@@ -1,23 +1,25 @@
 .PHONY: build test lint install release clean tui tui-run dev test-qa test-cache
 
-APP_NAME   := helix
+APP_NAME   := loomcode
+SHORT_NAME := loom
 BUILD_DIR  := bin
-CMD_DIR    := cmd/helix
+CMD_DIR    := cmd/loomcode
 
 GO         := go
 GOFLAGS    := -ldflags="-s -w"
 
-# Build
+# Build: 同时构建 loomcode 和 loom 两个二进制（同一源码）
 build:
 	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(APP_NAME) ./$(CMD_DIR)
+	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(SHORT_NAME) ./$(CMD_DIR)
 
 # Dev: build and show info
 dev: build
 	@echo ""
 	@echo "启动方式:"
-	@echo "  ./$(BUILD_DIR)/$(APP_NAME)                          # 直接启动 TUI"
-	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --session <id>           # 恢复会话"
-	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --provider deepseek      # 指定 Provider"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME)  或  ./$(BUILD_DIR)/$(SHORT_NAME)   # 直接启动 TUI"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --session <id>                       # 恢复会话"
+	@echo "  ./$(BUILD_DIR)/$(APP_NAME) --provider deepseek                  # 指定 Provider"
 
 # TUI: build with dependency verification
 tui:
@@ -50,9 +52,11 @@ test-cover-html:
 lint:
 	golangci-lint run ./...
 
-# Install to local
+# Install to local: 同时安装 loomcode 和 loom
 install:
-	$(GO) install ./$(CMD_DIR)
+	$(GO) install $(GOFLAGS) ./$(CMD_DIR)
+	@echo "Installed as loomcode"
+	@which loomcode >/dev/null 2>&1 && ln -sf "$$(which loomcode)" "$$(dirname $$(which loomcode))/loom" && echo "Symlinked as loom" || echo "Run manually: ln -sf \$$(which loomcode) /usr/local/bin/loom"
 
 # Cross-compile
 release:

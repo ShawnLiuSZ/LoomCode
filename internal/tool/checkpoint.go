@@ -25,10 +25,10 @@ type Checkpoint struct {
 }
 
 // CheckpointManager 管理文件编辑快照，支持 /rewind 回退。
-// 快照存储在 ~/.helix/checkpoints/ 下，每个快照为一个目录，
+// 快照存储在 ~/.loomcode/checkpoints/ 下，每个快照为一个目录，
 // 内含原始文件副本和元数据 JSON。
 type CheckpointManager struct {
-	baseDir    string // 快照根目录（~/.helix/checkpoints/）
+	baseDir    string // 快照根目录（~/.loomcode/checkpoints/）
 	maxEntries int    // 最大快照数量，超出时删除最旧的
 	mu         sync.Mutex
 	idCounter  int64 // 同毫秒内的序号，保证 ID 唯一
@@ -41,7 +41,7 @@ func NewCheckpointManager(baseDir string) *CheckpointManager {
 		if err != nil {
 			home = os.TempDir()
 		}
-		baseDir = filepath.Join(home, ".helix", "checkpoints")
+		baseDir = filepath.Join(home, ".loomcode", "checkpoints")
 	}
 	cm := &CheckpointManager{
 		baseDir:    baseDir,

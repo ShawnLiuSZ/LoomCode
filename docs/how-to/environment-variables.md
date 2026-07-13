@@ -4,7 +4,7 @@
 
 ## 概述
 
-Helix 使用环境变量管理 API 密钥和其他敏感配置。
+LoomCode 使用环境变量管理 API 密钥和其他敏感配置。
 
 ## 环境变量列表
 
@@ -16,12 +16,12 @@ Helix 使用环境变量管理 API 密钥和其他敏感配置。
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 使用 OpenAI 时 |
 | `MIMO_API_KEY` | MiMo API 密钥 | 使用 MiMo 时 |
 
-### Helix 配置
+### LoomCode 配置
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
-| `HELIX_PROVIDER` | 默认 Provider | 从配置文件读取 |
-| `HELIX_MODEL` | 默认模型 | 从配置文件读取 |
+| `LOOMCODE_PROVIDER` | 默认 Provider | 从配置文件读取 |
+| `LOOMCODE_MODEL` | 默认模型 | 从配置文件读取 |
 
 ### 系统变量
 
@@ -40,8 +40,8 @@ Helix 使用环境变量管理 API 密钥和其他敏感配置。
 export DEEPSEEK_API_KEY="sk-your-key-here"
 export OPENAI_API_KEY="sk-your-key-here"
 
-# 启动 Helix
-helix
+# 启动 LoomCode
+loomcode
 ```
 
 ### 方式二：.env 文件（推荐）
@@ -73,11 +73,11 @@ source ~/.zshrc
 
 ## .env 文件加载顺序
 
-Helix 按优先级加载 .env 文件（后覆盖前）：
+LoomCode 按优先级加载 .env 文件（后覆盖前）：
 
 1. **全局配置**
    ```
-   ~/.helix/.env
+   ~/.loomcode/.env
    ```
 
 2. **项目配置**
@@ -92,7 +92,7 @@ Helix 按优先级加载 .env 文件（后覆盖前）：
 
 4. **CLI 指定**（最高优先级）
    ```bash
-   helix --env-file custom.env
+   loomcode --env-file custom.env
    ```
 
 ## TUI 中管理环境变量
@@ -201,7 +201,7 @@ export DEEPSEEK_API_KEY="sk-your-key"
 **检查**：
 1. 文件路径正确
 2. 文件格式正确（无 BOM、无空格）
-3. 重启 Helix
+3. 重启 LoomCode
 
 ### 环境变量冲突
 
@@ -210,7 +210,7 @@ export DEEPSEEK_API_KEY="sk-your-key"
 env | grep DEEPSEEK
 
 # 临时覆盖
-DEEPSEEK_API_KEY="sk-new-key" helix
+DEEPSEEK_API_KEY="sk-new-key" loomcode
 ```
 
 ### 密钥泄露检测

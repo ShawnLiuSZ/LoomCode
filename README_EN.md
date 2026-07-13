@@ -1,6 +1,6 @@
-# Helix CLI
+# LoomCode CLI
 
-> Double Helix · Multi-Model · Extensible
+> Double LoomCode · Multi-Model · Extensible
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-active-success?style=flat-square" alt="Status: Active">
@@ -13,7 +13,7 @@
 
 English | [简体中文](README.md)
 
-**Helix** is a pure-CLI, Go-based, extensible multi-model agent programming tool. It combines the best ideas from [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) and [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code), with deep optimizations for DeepSeek V4 and Xiaomi MiMo, while supporting any OpenAI-compatible provider through a TOML config file.
+**LoomCode** is a pure-CLI, Go-based, extensible multi-model agent programming tool. It combines the best ideas from [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) and [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code), with deep optimizations for DeepSeek V4 and Xiaomi MiMo, while supporting any OpenAI-compatible provider through a TOML config file.
 
 ---
 
@@ -25,12 +25,12 @@ English | [简体中文](README.md)
 - **Edit Snapshot Safety Net** — Auto-snapshot before writes; `/rewind` restores prior state
 - **Cross-Session Context** — `list_sessions` / `read_session` tools let the agent access historical conversations
 - **Tool Call Repair** — RepairPipeline auto-fixes malformed JSON tool calls
-- **Setup Wizard** — `helix setup` interactively generates `helix.toml` + `.env`
-- **Config Schema** — `helix schema` outputs JSON Schema Draft 7 for editor autocomplete
+- **Setup Wizard** — `loomcode setup` interactively generates `loomcode.toml` + `.env`
+- **Config Schema** — `loomcode schema` outputs JSON Schema Draft 7 for editor autocomplete
 - **MCP Plugin Protocol** — stdio + HTTP, plug in external tools
 - **Long-Term Memory** — SQLite FTS5; `/remember` writes project knowledge and user preferences
 - **Cost Control** — Real-time token cost tracking with budget caps
-- **Auto-Loading Skills** — `~/.helix/skills/` directory auto-discovery
+- **Auto-Loading Skills** — `~/.loomcode/skills/` directory auto-discovery
 - **Prefix Cache** — Leverages DeepSeek/MiMo prefix caching to reduce cost
 
 ---
@@ -40,7 +40,7 @@ English | [简体中文](README.md)
 **Option 1: Install Script (recommended for end users)**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash
 ```
 
 The script detects OS and architecture (macOS/Linux/Windows × amd64/arm64), downloads the prebuilt binary, and configures PATH.
@@ -48,18 +48,18 @@ The script detects OS and architecture (macOS/Linux/Windows × amd64/arm64), dow
 **Option 2: Go Source Install (for Go developers)**
 
 ```bash
-go install github.com/ShawnLiuSZ/Helix/cmd/helix@latest
+go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 ```
 
-Installs to `$GOPATH/bin/helix`. Make sure `$GOPATH/bin` is on your PATH.
+Installs to `$GOPATH/bin/loomcode`. Make sure `$GOPATH/bin` is on your PATH.
 
 **Option 3: Build From Source (for contributors)**
 
 ```bash
-git clone https://github.com/ShawnLiuSZ/Helix.git
-cd Helix
+git clone https://github.com/ShawnLiuSZ/loomcode.git
+cd LoomCode
 make build
-./bin/helix --version
+./bin/loomcode --version
 ```
 
 ---
@@ -69,32 +69,32 @@ make build
 ### First Run: Interactive Setup Wizard
 
 ```bash
-helix setup
+loomcode setup
 ```
 
-Five-step wizard: choose provider → enter API key → pick model → generate `helix.toml` + `.env` → emit JSON Schema.
+Five-step wizard: choose provider → enter API key → pick model → generate `loomcode.toml` + `.env` → emit JSON Schema.
 
 ### Launch TUI
 
 ```bash
-helix                       # Start interactive TUI (default)
-helix --provider deepseek   # Specify provider
-helix --model deepseek-v4-pro  # Specify default model
-helix --session <id>        # Resume a previous session
+loomcode                       # Start interactive TUI (default)
+loomcode --provider deepseek   # Specify provider
+loomcode --model deepseek-v4-pro  # Specify default model
+loomcode --session <id>        # Resume a previous session
 ```
 
 ### One-Shot Task
 
 ```bash
-helix run "Create a hello.go file"
-echo "Explain this code" | ./bin/helix run
+loomcode run "Create a hello.go file"
+echo "Explain this code" | ./bin/loomcode run
 ```
 
 ### Emit Config Schema
 
 ```bash
-helix schema > ~/.helix/schema.json
-# Load this file in your editor (VS Code / Vim / etc.) for helix.toml autocomplete & validation
+loomcode schema > ~/.loomcode/schema.json
+# Load this file in your editor (VS Code / Vim / etc.) for loomcode.toml autocomplete & validation
 ```
 
 ---
@@ -103,16 +103,16 @@ helix schema > ~/.helix/schema.json
 
 | Command | Description |
 |---------|-------------|
-| `helix` | Start interactive TUI (default) |
-| `helix run <task>` | One-shot task |
-| `helix setup` | Interactive setup wizard |
-| `helix schema` | Output JSON Schema for config validation |
-| `helix dashboard [addr]` | Launch web dashboard (default :8080) |
-| `helix --provider <name>` | Specify provider (deepseek/mimo/openai) |
-| `helix --model <id>` | Specify model |
-| `helix --session <id>` | Resume a session |
-| `helix --env-file <path>` | Load custom .env |
-| `helix --version` | Show version |
+| `loomcode` | Start interactive TUI (default) |
+| `loomcode run <task>` | One-shot task |
+| `loomcode setup` | Interactive setup wizard |
+| `loomcode schema` | Output JSON Schema for config validation |
+| `loomcode dashboard [addr]` | Launch web dashboard (default :8080) |
+| `loomcode --provider <name>` | Specify provider (deepseek/mimo/openai) |
+| `loomcode --model <id>` | Specify model |
+| `loomcode --session <id>` | Resume a session |
+| `loomcode --env-file <path>` | Load custom .env |
+| `loomcode --version` | Show version |
 
 ---
 
@@ -158,7 +158,7 @@ helix schema > ~/.helix/schema.json
 
 ## Edit Snapshot Safety Net (/rewind)
 
-Helix automatically creates snapshot copies before every write_file / edit_file operation. Snapshots live in `~/.helix/checkpoints/`, capped at 100 entries. Overwritten or deleted files can be restored via `/rewind`.
+LoomCode automatically creates snapshot copies before every write_file / edit_file operation. Snapshots live in `~/.loomcode/checkpoints/`, capped at 100 entries. Overwritten or deleted files can be restored via `/rewind`.
 
 ```bash
 # List the 20 most recent snapshots
@@ -192,7 +192,7 @@ This lets the agent "remember" prior discussions, conventions, and decisions, av
 
 ### Config File
 
-`helix.toml` (project root) or `~/.helix/helix.toml` (global). See [`helix.example.toml`](helix.example.toml).
+`loomcode.toml` (project root) or `~/.loomcode/loomcode.toml` (global). See [`loomcode.example.toml`](loomcode.example.toml).
 
 ```toml
 default_provider = "deepseek"
@@ -223,13 +223,13 @@ default_model = "deepseek-v4-flash"
 ### JSON Schema Validation
 
 ```bash
-helix schema > ~/.helix/schema.json
+loomcode schema > ~/.loomcode/schema.json
 ```
 
-In VS Code, add this to the top of `helix.toml`:
+In VS Code, add this to the top of `loomcode.toml`:
 
 ```toml
-#:schema ~/.helix/schema.json
+#:schema ~/.loomcode/schema.json
 ```
 
 You'll get field autocomplete, type checks, and enum hints.
@@ -239,7 +239,7 @@ You'll get field autocomplete, type checks, and enum hints.
 Four-level `.env` loading (later ones override earlier):
 
 ```
-1. ~/.helix/.env        ← global config
+1. ~/.loomcode/.env        ← global config
 2. ./.env                ← project config
 3. ./.env.local          ← local override (not committed)
 4. --env-file custom.env ← CLI flag (highest priority)
@@ -256,7 +256,7 @@ OPENAI_API_KEY=
 
 ## MCP Plugins
 
-Configure MCP servers in `helix.toml` to extend tool capabilities:
+Configure MCP servers in `loomcode.toml` to extend tool capabilities:
 
 ```toml
 # stdio mode
@@ -279,7 +279,7 @@ On startup, skills are auto-loaded from:
 
 ```
 ~/.agents/skills/*/SKILL.md   ← lower priority
-~/.helix/skills/*/SKILL.md    ← higher priority (same name overrides)
+~/.loomcode/skills/*/SKILL.md    ← higher priority (same name overrides)
 ```
 
 Each skill is a directory containing a `SKILL.md` file. Use `/skills` to list all loaded skills.
@@ -304,7 +304,7 @@ Each skill is a directory containing a `SKILL.md` file. Use `/skills` to list al
 ## Project Structure
 
 ```
-cmd/helix/main.go          ← CLI entry
+cmd/loomcode/main.go          ← CLI entry
 internal/
   config/                  ← config loading, wizard, schema generation
   provider/                ← multi-vendor model access

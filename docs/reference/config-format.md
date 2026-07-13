@@ -1,18 +1,18 @@
 # 配置文件格式
 
-> helix.toml 完整语法
+> loomcode.toml 完整语法
 
 ## 概述
 
-Helix 使用 TOML 格式的配置文件。
+LoomCode 使用 TOML 格式的配置文件。
 
 ## 文件位置
 
 按优先级查找：
 
 1. `--config` 指定的路径
-2. `./helix.toml` - 项目目录
-3. `~/.helix/config.toml` - 全局配置
+2. `./loomcode.toml` - 项目目录
+3. `~/.loomcode/config.toml` - 全局配置
 
 ## 完整示例
 
@@ -166,11 +166,11 @@ batchTool = false
 api_key_env = "DEEPSEEK_API_KEY"
 ```
 
-Helix 会从环境变量中读取实际的 API Key。
+LoomCode 会从环境变量中读取实际的 API Key。
 
 ## 配置验证
 
-Helix 会验证配置文件：
+LoomCode 会验证配置文件：
 
 1. 必填字段检查
 2. 格式验证

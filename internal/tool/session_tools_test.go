@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/session"
+	"github.com/ShawnLiuSZ/loomcode/internal/session"
 )
 
 func TestListSessionsTool_RegisteredByDefault(t *testing.T) {

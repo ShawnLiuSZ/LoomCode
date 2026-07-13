@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 type fakeMemory struct{ prompt string }
@@ -38,7 +38,7 @@ func TestBuildSystemPrompt_NoMemoryNoError(t *testing.T) {
 	a := New(p, tool.NewRegistry())
 
 	prompt := a.buildSystemPrompt() // no memory set
-	if !strings.Contains(prompt, "Helix") {
+	if !strings.Contains(prompt, "LoomCode") {
 		t.Error("prompt should still be built without memory")
 	}
 }

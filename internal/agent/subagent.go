@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // maxSubAgentDepth 子 Agent 递归 spawn 的最大深度，防止成本/栈爆炸。

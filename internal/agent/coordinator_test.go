@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // TestNewReadOnlyRegistry 验证从完整 registry 过滤出的只读 registry 只含 IsReadOnly 的工具。

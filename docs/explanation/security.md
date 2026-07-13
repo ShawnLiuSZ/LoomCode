@@ -36,7 +36,7 @@ Permission
 
 ## 配置
 
-在 `helix.toml` 中配置：
+在 `loomcode.toml` 中配置：
 
 ```toml
 [security]

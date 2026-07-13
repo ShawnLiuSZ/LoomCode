@@ -137,14 +137,14 @@ func TestEditFileTool(t *testing.T) {
 	_, err := tl.Execute(context.Background(), map[string]any{
 		"path":     path,
 		"old_text": "World", // unique match
-		"new_text": "Helix",
+		"new_text": "LoomCode",
 	})
 	if err != nil {
 		t.Fatalf("Execute() error: %v", err)
 	}
 
 	data, _ := os.ReadFile(path)
-	if string(data) != "Hello, Helix!\nGoodbye, Earth!" {
+	if string(data) != "Hello, LoomCode!\nGoodbye, Earth!" {
 		t.Errorf("file content = %q", string(data))
 	}
 }

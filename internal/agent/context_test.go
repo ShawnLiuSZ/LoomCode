@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // --- System prompt environment grounding ---
@@ -53,8 +53,8 @@ func TestBuildSystemPrompt_NoWorkDirStillValid(t *testing.T) {
 	a := New(p, tool.NewRegistry())
 
 	prompt := a.buildSystemPrompt()
-	if !strings.Contains(prompt, "Helix") {
-		t.Error("system prompt should mention Helix")
+	if !strings.Contains(prompt, "LoomCode") {
+		t.Error("system prompt should mention LoomCode")
 	}
 	if !strings.Contains(prompt, "tools") {
 		t.Error("system prompt should mention tools")

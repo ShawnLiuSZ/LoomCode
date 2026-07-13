@@ -1,6 +1,6 @@
 # 开发路线图
 
-> Helix CLI 功能演进计划
+> LoomCode CLI 功能演进计划
 
 **最后更新**: 2026-06-18
 **版本**: v0.1.0 → v0.2.0 规划
@@ -149,7 +149,7 @@ REPLACE: func newFunc() {
 
 #### Hooks 系统
 ```toml
-# helix.toml
+# loomcode.toml
 [hooks]
 pre_tool_use = "echo 'Executing: {{.ToolName}}'"
 post_tool_use = "echo 'Completed: {{.ToolName}}'"
@@ -181,7 +181,7 @@ stop = "echo 'Session ended'"
 #### Web Dashboard
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Helix Dashboard                                    [Settings]│
+│ LoomCode Dashboard                                    [Settings]│
 ├─────────────────────────────────────────────────────────────┤
 │ Sessions          │ Cost Analysis           │ Provider Status│
 │ ┌───────────────┐ │ ┌─────────────────────┐ │ ┌────────────┐│

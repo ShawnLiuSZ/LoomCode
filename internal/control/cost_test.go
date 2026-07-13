@@ -3,7 +3,7 @@ package control
 import (
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 func TestCostController_ModelSelection(t *testing.T) {

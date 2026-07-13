@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/skills"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/skills"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // Agent 核心 Agent
@@ -87,9 +87,9 @@ func (a *Agent) GetEffort() *EffortManager { return a.effort }
 // SetModel 设置模型名
 func (a *Agent) SetModel(m string) { a.model = m }
 
-// SetSystemPrompt 注入专用系统提示，覆盖默认的 Helix 身份提示。
+// SetSystemPrompt 注入专用系统提示，覆盖默认的 LoomCode 身份提示。
 // 用于 planner/executor 分离 session 架构中给 planner 注入专用提示。
-// 空字符串表示使用默认的 Helix 身份提示。
+// 空字符串表示使用默认的 LoomCode 身份提示。
 func (a *Agent) SetSystemPrompt(s string) { a.systemPromptOverride = s }
 
 // SetReadOnlyTools 设置是否仅向模型暴露只读工具。
@@ -736,7 +736,7 @@ func (a *Agent) buildStaticSystemPrompt() string {
 		return a.systemPromptOverride
 	}
 	var sb strings.Builder
-	sb.WriteString("You are Helix, an AI coding assistant operating in a terminal.\n")
+	sb.WriteString("You are LoomCode, an AI coding assistant operating in a terminal.\n")
 	sb.WriteString("You have access to tools for reading/writing files, editing code, executing commands, and searching code.\n")
 	sb.WriteString("\n## Working principles\n")
 	sb.WriteString("- Use tools to gather facts before acting; do not guess file contents or paths.\n")
@@ -778,7 +778,7 @@ func (a *Agent) buildSystemPrompt() string {
 	return a.buildStaticSystemPrompt() + a.buildDynamicContext()
 }
 
-var projectInstructionFiles = []string{"HELIX.md", "HELIX.local.md", ".helix/instructions.md"}
+var projectInstructionFiles = []string{"LOOMCODE.md", "LOOMCODE.local.md", ".loomcode/instructions.md"}
 
 func loadProjectInstructions(root string) string {
 	var parts []string

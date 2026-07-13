@@ -1,13 +1,13 @@
-# Helix Dashboard 示例
+# LoomCode Dashboard 示例
 
 ## 启动 Dashboard
 
 ```bash
 # 使用默认端口 (8080)
-./bin/helix dashboard
+./bin/loomcode dashboard
 
 # 指定端口
-./bin/helix dashboard :9090
+./bin/loomcode dashboard :9090
 ```
 
 ## 访问 Dashboard

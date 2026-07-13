@@ -1,14 +1,14 @@
 # MCP 插件协议参考
 
-> 本文档描述 Helix 的 MCP (Model Context Protocol) 插件集成。
+> 本文档描述 LoomCode 的 MCP (Model Context Protocol) 插件集成。
 
 ## 概述
 
-MCP 是一种用于 AI 模型与外部工具/服务交互的协议。Helix 支持通过 MCP 协议加载外部插件。
+MCP 是一种用于 AI 模型与外部工具/服务交互的协议。LoomCode 支持通过 MCP 协议加载外部插件。
 
 ## 配置
 
-在 `helix.toml` 中配置 MCP 服务器：
+在 `loomcode.toml` 中配置 MCP 服务器：
 
 ```toml
 [[mcp_servers]]

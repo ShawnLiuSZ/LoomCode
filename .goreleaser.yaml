@@ -3,16 +3,34 @@
 
 version: 2
 
-project_name: helix
+project_name: loomcode
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: helix
-    main: ./cmd/helix
-    binary: helix
+  - id: loomcode
+    main: ./cmd/loomcode
+    binary: loomcode
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+  - id: loom
+    main: ./cmd/loomcode
+    binary: loom
     env:
       - CGO_ENABLED=0
     goos:
@@ -55,30 +73,32 @@ release:
   draft: true
   prerelease: auto
   footer: |
-    ## Helix CLI — 双螺旋 · 多模型 · 可扩展
+    ## LoomCode CLI — 双螺旋 · 多模型 · 可扩展
     
     **Quick Install:**
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash
     ```
     
     **Usage:**
     ```bash
-    helix                          # Start interactive TUI
-    helix --session <id>           # Resume a session
-    helix run "your task"          # Single task mode
-    echo "task" | helix run        # Pipe mode
+    loomcode                          # Start interactive TUI (or: loom)
+    loomcode --session <id>           # Resume a session
+    loomcode run "your task"          # Single task mode
+    echo "task" | loomcode run        # Pipe mode
     ```
 
 brews:
-  - name: helix
+  - name: loomcode
     repository:
       owner: ShawnLiuSZ
-      name: homebrew-helix
-    homepage: "https://github.com/ShawnLiuSZ/Helix"
-    description: "Helix CLI - 双螺旋 · 多模型 · 可扩展"
+      name: homebrew-loomcode
+    homepage: "https://github.com/ShawnLiuSZ/loomcode"
+    description: "LoomCode CLI - 双螺旋 · 多模型 · 可扩展"
     license: "MIT"
     install: |
-      bin.install "helix"
+      bin.install "loomcode"
+      bin.install "loom"
     test: |
-      system "#{bin}/helix --help"
+      system "#{bin}/loomcode --help"
+      system "#{bin}/loom --help"

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
 )
 
 // MockProvider 模拟 Provider（用于测试）

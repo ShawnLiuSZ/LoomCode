@@ -20,14 +20,14 @@ import (
 	glamourstyles "github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ShawnLiuSZ/Helix/internal/agent"
-	"github.com/ShawnLiuSZ/Helix/internal/consts"
-	"github.com/ShawnLiuSZ/Helix/internal/control"
-	"github.com/ShawnLiuSZ/Helix/internal/memory"
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/session"
-	"github.com/ShawnLiuSZ/Helix/internal/skills"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/agent"
+	"github.com/ShawnLiuSZ/loomcode/internal/consts"
+	"github.com/ShawnLiuSZ/loomcode/internal/control"
+	"github.com/ShawnLiuSZ/loomcode/internal/memory"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/session"
+	"github.com/ShawnLiuSZ/loomcode/internal/skills"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // Version 版本号（由 main 包注入）
@@ -210,7 +210,7 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	// 接入长期记忆（项目知识/用户偏好注入系统提示）。best-effort：打不开则跳过。
 	var memMgr *memory.Manager
 	if home, err := os.UserHomeDir(); err == nil {
-		if store, err := memory.NewStore(filepath.Join(home, ".helix", "memory.db")); err == nil {
+		if store, err := memory.NewStore(filepath.Join(home, ".loomcode", "memory.db")); err == nil {
 			memMgr = memory.NewManager(store)
 			ag.SetMemory(memMgr)
 		}
@@ -1142,8 +1142,8 @@ func (a *App) handleSkillsCmd() (tea.Model, tea.Cmd) {
 		fmt.Fprintf(&sb, "\n外部 Skills (%d):\n\n", len(skillList))
 		for _, s := range skillList {
 			source := ""
-			if s.Source == "helix" {
-				source = " [helix]"
+			if s.Source == "loomcode" {
+				source = " [loomcode]"
 			}
 			fmt.Fprintf(&sb, "  📄 %s%s - %s\n", s.Name, source, s.Description)
 		}
@@ -1344,7 +1344,7 @@ func (a *App) renderTitle() string {
 		agent.ModeBuild: "🛠", agent.ModePlan: "📋", agent.ModeCompose: "📦", agent.ModeMax: "⚡",
 	}
 	icon := modeIcons[a.mode]
-	title := fmt.Sprintf("%s Helix CLI | %s | %s | %s",
+	title := fmt.Sprintf("%s LoomCode CLI | %s | %s | %s",
 		icon, a.mode.String(), a.provider.Name(), a.model)
 	return headerStyle.Width(a.width).Render(title)
 }
@@ -1456,7 +1456,7 @@ func (a *App) renderWelcome() string {
 	var sb strings.Builder
 
 	// DNA 双螺旋配色
-	helixStyle := lipgloss.NewStyle().Bold(true)
+	loomcodeStyle := lipgloss.NewStyle().Bold(true)
 	blue := lipgloss.Color("39") // #00BFFF
 	cyan := lipgloss.Color("43") // #00CED1
 	dim := lipgloss.Color("24")  // #585858
@@ -1492,11 +1492,11 @@ func (a *App) renderWelcome() string {
 	for i := 0; i < maxLines; i++ {
 		left := ""
 		if i < len(logo) {
-			left = helixStyle.Foreground(logo[i].color).Render(logo[i].text)
+			left = loomcodeStyle.Foreground(logo[i].color).Render(logo[i].text)
 		}
 		right := ""
 		if i == 0 {
-			right = verStyle.Render("Helix CLI v" + Version)
+			right = verStyle.Render("LoomCode CLI v" + Version)
 		} else if i-1 < len(tips) {
 			right = tipStyle.Render(tips[i-1])
 		}
@@ -1789,7 +1789,7 @@ func friendlyError(err string) string {
 	lower := strings.ToLower(err)
 	switch {
 	case strings.Contains(lower, "api key") || strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized"):
-		return "API Key 无效或未设置。运行 helix setup 或检查 .env 文件中的 API_KEY 配置。"
+		return "API Key 无效或未设置。运行 loomcode setup 或检查 .env 文件中的 API_KEY 配置。"
 	case strings.Contains(lower, "429") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "too many requests"):
 		return "请求过于频繁，请稍后重试。"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):

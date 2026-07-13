@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/skills"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/skills"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 func TestSetSkillsManager_RegistersSkillTool(t *testing.T) {
@@ -31,7 +31,7 @@ func TestBuildSystemPrompt_SkillGuidanceMentionsTool(t *testing.T) {
 	// Real skill on a temp HOME so the skill tool has something to list.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	skillDir := filepath.Join(home, ".helix", "skills", "commit")
+	skillDir := filepath.Join(home, ".loomcode", "skills", "commit")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Helix CLI 一键安装脚本
-# 用法: curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+# LoomCode CLI 一键安装脚本
+# 用法: curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash
 
-REPO="ShawnLiuSZ/Helix"
-BIN_NAME="helix"
-INSTALL_DIR="${HELIX_INSTALL_DIR:-$HOME/.helix/bin}"
+REPO="ShawnLiuSZ/LoomCode"
+BIN_NAME="loomcode"
+INSTALL_DIR="${LOOMCODE_INSTALL_DIR:-$HOME/.loomcode/bin}"
 
 # 颜色
 RED='\033[0;31m'
@@ -18,7 +18,7 @@ NC='\033[0m'
 
 usage() {
     cat <<EOF
-Helix CLI Installer
+LoomCode CLI Installer
 
 Usage: install.sh [options]
 
@@ -28,8 +28,8 @@ Options:
         --no-modify-path    Don't modify shell config files
 
 Examples:
-    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
-    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash -s -- --version v0.1.0
+    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash -s -- --version v0.1.0
 EOF
 }
 
@@ -90,7 +90,7 @@ PLATFORM=$(detect_platform)
 OS="${PLATFORM%%-*}"
 ARCH="${PLATFORM##*-}"
 
-echo -e "${BLUE}Helix CLI Installer${NC}"
+echo -e "${BLUE}LoomCode CLI Installer${NC}"
 echo -e "  Platform: ${PLATFORM}"
 
 # 解析版本
@@ -123,7 +123,7 @@ echo ""
 if command -v "$BIN_NAME" >/dev/null 2>&1; then
     installed_version=$("$BIN_NAME" --version 2>/dev/null || echo "unknown")
     if [ "$installed_version" = "v${specific_version}" ]; then
-        echo -e "${GREEN}Helix v${specific_version} is already installed${NC}"
+        echo -e "${GREEN}LoomCode v${specific_version} is already installed${NC}"
         exit 0
     fi
     echo -e "${MUTED}Updating from ${installed_version} to v${specific_version}...${NC}"
@@ -155,6 +155,10 @@ mkdir -p "${INSTALL_DIR}"
 mv "${TMP_DIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}"
 chmod 755 "${INSTALL_DIR}/${BIN_NAME}"
 
+# 同时安装 loom 短命令（同一二进制的副本）
+cp "${INSTALL_DIR}/${BIN_NAME}" "${INSTALL_DIR}/loom"
+chmod 755 "${INSTALL_DIR}/loom"
+
 # PATH 配置
 add_to_path() {
     local config_file=$1
@@ -166,7 +170,7 @@ add_to_path() {
 
     if [[ -w $config_file ]]; then
         echo "" >> "$config_file"
-        echo "# helix" >> "$config_file"
+        echo "# loomcode" >> "$config_file"
         echo "$command" >> "$config_file"
         echo -e "${MUTED}Added to ${config_file}${NC}"
     else
@@ -207,11 +211,12 @@ if [[ "$no_modify_path" != "true" ]] && [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]];
 fi
 
 echo ""
-echo -e "${GREEN}Helix CLI v${specific_version} installed to ${INSTALL_DIR}/${BIN_NAME}${NC}"
+echo -e "${GREEN}LoomCode CLI v${specific_version} installed to ${INSTALL_DIR}/${BIN_NAME}${NC}"
+echo -e "${GREEN}Also installed as: ${INSTALL_DIR}/loom${NC}"
 echo ""
 echo -e "${MUTED}Get started:${NC}"
 echo ""
-echo -e "  helix setup       ${MUTED}# Configure API keys${NC}"
-echo -e "  helix             ${MUTED}# Start interactive TUI${NC}"
-echo -e "  helix run \"task\"  ${MUTED}# Single task mode${NC}"
+echo -e "  loomcode setup       ${MUTED}# Configure API keys${NC}"
+echo -e "  loomcode             ${MUTED}# Start interactive TUI (or: loom)${NC}"
+echo -e "  loomcode run \"task\"  ${MUTED}# Single task mode (or: loom run \"task\")${NC}"
 echo ""

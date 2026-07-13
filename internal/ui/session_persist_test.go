@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/session"
+	"github.com/ShawnLiuSZ/loomcode/internal/session"
 )
 
 // H3: 即使启动时没有 --session，saveSession 也应懒创建并持久化会话，

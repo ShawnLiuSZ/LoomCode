@@ -114,14 +114,14 @@ func TestCrypto_SessionFile(t *testing.T) {
 
 func TestCrypto_DeriveKey(t *testing.T) {
 	// 设置环境变量
-	t.Setenv("HELIX_ENCRYPTION_KEY", "my-encryption-secret")
+	t.Setenv("LOOMCODE_ENCRYPTION_KEY", "my-encryption-secret")
 	key := deriveKey()
 	if len(key) != 32 {
 		t.Errorf("key length = %d, want 32", len(key))
 	}
 
 	// 不设置环境变量
-	os.Unsetenv("HELIX_ENCRYPTION_KEY")
+	os.Unsetenv("LOOMCODE_ENCRYPTION_KEY")
 	key2 := deriveKey()
 	if len(key2) != 32 {
 		t.Errorf("default key length = %d, want 32", len(key2))

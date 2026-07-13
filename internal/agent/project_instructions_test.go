@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/testutil"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/testutil"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 func TestLoadProjectInstructions_NoFiles(t *testing.T) {
@@ -23,7 +23,7 @@ func TestLoadProjectInstructions_NoFiles(t *testing.T) {
 func TestLoadProjectInstructions_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	content := "# My Project\nFollow these rules."
-	os.WriteFile(filepath.Join(dir, "HELIX.md"), []byte(content), 0644)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.md"), []byte(content), 0644)
 
 	result := loadProjectInstructions(dir)
 	if result != content {
@@ -33,26 +33,26 @@ func TestLoadProjectInstructions_SingleFile(t *testing.T) {
 
 func TestLoadProjectInstructions_MultipleFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ".helix"), 0755)
-	os.WriteFile(filepath.Join(dir, "HELIX.md"), []byte("# Base instructions"), 0644)
-	os.WriteFile(filepath.Join(dir, "HELIX.local.md"), []byte("# Local overrides"), 0644)
-	os.WriteFile(filepath.Join(dir, ".helix", "instructions.md"), []byte("# Extra notes"), 0644)
+	os.MkdirAll(filepath.Join(dir, ".loomcode"), 0755)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.md"), []byte("# Base instructions"), 0644)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.local.md"), []byte("# Local overrides"), 0644)
+	os.WriteFile(filepath.Join(dir, ".loomcode", "instructions.md"), []byte("# Extra notes"), 0644)
 
 	result := loadProjectInstructions(dir)
 	if !strings.Contains(result, "# Base instructions") {
-		t.Error("missing HELIX.md content")
+		t.Error("missing LOOMCODE.md content")
 	}
 	if !strings.Contains(result, "# Local overrides") {
-		t.Error("missing HELIX.local.md content")
+		t.Error("missing LOOMCODE.local.md content")
 	}
 	if !strings.Contains(result, "# Extra notes") {
-		t.Error("missing .helix/instructions.md content")
+		t.Error("missing .loomcode/instructions.md content")
 	}
 }
 
 func TestLoadProjectInstructions_PartialFiles(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "HELIX.local.md"), []byte("local only"), 0644)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.local.md"), []byte("local only"), 0644)
 
 	result := loadProjectInstructions(dir)
 	if result != "local only" {
@@ -62,7 +62,7 @@ func TestLoadProjectInstructions_PartialFiles(t *testing.T) {
 
 func TestLoadProjectInstructions_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "HELIX.md"), []byte("   \n  "), 0644)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.md"), []byte("   \n  "), 0644)
 
 	result := loadProjectInstructions(dir)
 	if result != "" {
@@ -72,7 +72,7 @@ func TestLoadProjectInstructions_EmptyFile(t *testing.T) {
 
 func TestBuildSystemPrompt_WithProjectInstructions(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "HELIX.md"), []byte("# Custom Rules\nDo X."), 0644)
+	os.WriteFile(filepath.Join(dir, "LOOMCODE.md"), []byte("# Custom Rules\nDo X."), 0644)
 
 	p := testutil.NewStubProvider(func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 		return &provider.ChatResponse{Content: "ok"}, nil
@@ -86,7 +86,7 @@ func TestBuildSystemPrompt_WithProjectInstructions(t *testing.T) {
 		t.Error("system prompt should contain Project Instructions header")
 	}
 	if !strings.Contains(prompt, "Do X.") {
-		t.Error("system prompt should contain HELIX.md content")
+		t.Error("system prompt should contain LOOMCODE.md content")
 	}
 }
 

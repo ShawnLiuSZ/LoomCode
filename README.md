@@ -1,4 +1,4 @@
-# Helix CLI
+# LoomCode CLI
 
 > 双螺旋 · 多模型 · 可扩展
 
@@ -13,7 +13,7 @@
 
 [English](README_EN.md) | 简体中文
 
-**Helix** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 和 [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) 的核心优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置文件一键接入。
+**LoomCode** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) 和 [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code) 的核心优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置文件一键接入。
 
 ---
 
@@ -25,12 +25,12 @@
 - **编辑快照安全网** — 写文件前自动快照，`/rewind` 一键回退
 - **跨会话上下文** — `list_sessions` / `read_session` 工具，让 Agent 访问历史会话
 - **工具调用修复** — RepairPipeline 自动修复 JSON 格式错误的工具调用
-- **配置向导** — `helix setup` 交互式生成 `helix.toml` + `.env`
-- **配置 Schema** — `helix schema` 输出 JSON Schema Draft 7，支持编辑器自动补全
+- **配置向导** — `loomcode setup` 交互式生成 `loomcode.toml` + `.env`
+- **配置 Schema** — `loomcode schema` 输出 JSON Schema Draft 7，支持编辑器自动补全
 - **MCP 插件协议** — stdio + HTTP 双通道，接入外部工具
 - **长期记忆** — SQLite FTS5，`/remember` 写入项目知识与用户偏好
 - **成本控制** — 实时统计 Token 成本，可设预算上限
-- **Skills 自动加载** — `~/.helix/skills/` 目录自动加载
+- **Skills 自动加载** — `~/.loomcode/skills/` 目录自动加载
 - **Prefix Cache** — 充分利用 DeepSeek/MiMo 的前缀缓存能力降低成本
 
 ---
@@ -40,7 +40,7 @@
 **方式一：一键脚本（推荐，适合终端用户）**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/LoomCode/main/scripts/install.sh | bash
 ```
 
 脚本自动检测操作系统与架构（macOS/Linux/Windows × amd64/arm64），下载预编译二进制并配置 PATH。
@@ -48,18 +48,18 @@ curl -fsSL https://raw.githubusercontent.com/ShawnLiuSZ/Helix/main/scripts/insta
 **方式二：Go 源码安装（适合 Go 开发者）**
 
 ```bash
-go install github.com/ShawnLiuSZ/Helix/cmd/helix@latest
+go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 ```
 
-二进制安装到 `$GOPATH/bin/helix`，确保 `$GOPATH/bin` 在 PATH 中。
+二进制安装到 `$GOPATH/bin/loomcode`，确保 `$GOPATH/bin` 在 PATH 中。
 
 **方式三：本地构建（适合贡献者）**
 
 ```bash
-git clone https://github.com/ShawnLiuSZ/Helix.git
-cd Helix
+git clone https://github.com/ShawnLiuSZ/loomcode.git
+cd LoomCode
 make build
-./bin/helix --version
+./bin/loomcode --version
 ```
 
 ---
@@ -69,32 +69,32 @@ make build
 ### 首次使用：交互式配置向导
 
 ```bash
-helix setup
+loomcode setup
 ```
 
-五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `helix.toml` + `.env` → 输出 JSON Schema。
+五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `loomcode.toml` + `.env` → 输出 JSON Schema。
 
 ### 启动 TUI
 
 ```bash
-helix                       # 启动交互式 TUI（默认）
-helix --provider deepseek   # 指定 Provider
-helix --model deepseek-v4-pro  # 指定默认模型
-helix --session <id>        # 恢复历史会话
+loomcode                       # 启动交互式 TUI（默认）
+loomcode --provider deepseek   # 指定 Provider
+loomcode --model deepseek-v4-pro  # 指定默认模型
+loomcode --session <id>        # 恢复历史会话
 ```
 
 ### 单次任务
 
 ```bash
-helix run "创建一个 hello.go"
-echo "解释这段代码" | ./bin/helix run
+loomcode run "创建一个 hello.go"
+echo "解释这段代码" | ./bin/loomcode run
 ```
 
 ### 输出配置 Schema
 
 ```bash
-helix schema > ~/.helix/schema.json
-# 编辑器（VS Code / Vim 等）加载此文件即可获得 helix.toml 的自动补全与校验
+loomcode schema > ~/.loomcode/schema.json
+# 编辑器（VS Code / Vim 等）加载此文件即可获得 loomcode.toml 的自动补全与校验
 ```
 
 ---
@@ -103,16 +103,16 @@ helix schema > ~/.helix/schema.json
 
 | 命令 | 说明 |
 |------|------|
-| `helix` | 启动交互式 TUI（默认） |
-| `helix run <task>` | 单次任务 |
-| `helix setup` | 交互式配置向导 |
-| `helix schema` | 输出 JSON Schema（配置校验） |
-| `helix dashboard [addr]` | 启动 Web Dashboard（默认 :8080） |
-| `helix --provider <name>` | 指定 Provider（deepseek/mimo/openai） |
-| `helix --model <id>` | 指定模型 |
-| `helix --session <id>` | 恢复历史会话 |
-| `helix --env-file <path>` | 加载自定义 .env |
-| `helix --version` | 显示版本 |
+| `loomcode` | 启动交互式 TUI（默认） |
+| `loomcode run <task>` | 单次任务 |
+| `loomcode setup` | 交互式配置向导 |
+| `loomcode schema` | 输出 JSON Schema（配置校验） |
+| `loomcode dashboard [addr]` | 启动 Web Dashboard（默认 :8080） |
+| `loomcode --provider <name>` | 指定 Provider（deepseek/mimo/openai） |
+| `loomcode --model <id>` | 指定模型 |
+| `loomcode --session <id>` | 恢复历史会话 |
+| `loomcode --env-file <path>` | 加载自定义 .env |
+| `loomcode --version` | 显示版本 |
 
 ---
 
@@ -158,7 +158,7 @@ helix schema > ~/.helix/schema.json
 
 ## 编辑快照安全网（/rewind）
 
-Helix 在每次写文件/编辑文件前自动创建快照副本，存储在 `~/.helix/checkpoints/`，最多保留 100 个。被覆盖或删除的文件可通过 `/rewind` 命令恢复。
+LoomCode 在每次写文件/编辑文件前自动创建快照副本，存储在 `~/.loomcode/checkpoints/`，最多保留 100 个。被覆盖或删除的文件可通过 `/rewind` 命令恢复。
 
 ```bash
 # 查看最近 20 个快照
@@ -192,7 +192,7 @@ Agent 在执行任务时可调用以下工具访问历史会话：
 
 ### 配置文件
 
-`helix.toml`（项目根目录）或 `~/.helix/helix.toml`（全局）。示例见 [`helix.example.toml`](helix.example.toml)。
+`loomcode.toml`（项目根目录）或 `~/.loomcode/loomcode.toml`（全局）。示例见 [`loomcode.example.toml`](loomcode.example.toml)。
 
 ```toml
 default_provider = "deepseek"
@@ -223,13 +223,13 @@ default_model = "deepseek-v4-flash"
 ### JSON Schema 校验
 
 ```bash
-helix schema > ~/.helix/schema.json
+loomcode schema > ~/.loomcode/schema.json
 ```
 
-VS Code 在 `helix.toml` 顶部添加：
+VS Code 在 `loomcode.toml` 顶部添加：
 
 ```toml
-#:schema ~/.helix/schema.json
+#:schema ~/.loomcode/schema.json
 ```
 
 即可获得字段补全、类型校验、枚举提示。
@@ -239,7 +239,7 @@ VS Code 在 `helix.toml` 顶部添加：
 支持四级 `.env` 加载（后加载覆盖前加载）：
 
 ```
-1. ~/.helix/.env        ← 全局配置
+1. ~/.loomcode/.env        ← 全局配置
 2. ./.env                ← 项目配置
 3. ./.env.local          ← 本地覆盖（不提交 git）
 4. --env-file custom.env ← CLI 参数（最高优先级）
@@ -256,7 +256,7 @@ OPENAI_API_KEY=
 
 ## MCP 插件
 
-在 `helix.toml` 中配置 MCP 服务器，扩展工具能力：
+在 `loomcode.toml` 中配置 MCP 服务器，扩展工具能力：
 
 ```toml
 # stdio 模式
@@ -279,7 +279,7 @@ url  = "https://mcp.example.com/sse"
 
 ```
 ~/.agents/skills/*/SKILL.md   ← 低优先级
-~/.helix/skills/*/SKILL.md    ← 高优先级（同名覆盖）
+~/.loomcode/skills/*/SKILL.md    ← 高优先级（同名覆盖）
 ```
 
 每个 skill 是一个包含 `SKILL.md` 的目录。使用 `/skills` 查看所有已加载的 skills。
@@ -304,7 +304,7 @@ url  = "https://mcp.example.com/sse"
 ## 项目结构
 
 ```
-cmd/helix/main.go          ← CLI 入口
+cmd/loomcode/main.go          ← CLI 入口
 internal/
   config/                  ← 配置加载、向导、Schema 生成
   provider/                ← 多厂商模型接入

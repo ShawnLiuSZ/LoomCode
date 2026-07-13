@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ShawnLiuSZ/Helix/internal/provider"
-	"github.com/ShawnLiuSZ/Helix/internal/skills"
-	"github.com/ShawnLiuSZ/Helix/internal/tool"
+	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/skills"
+	"github.com/ShawnLiuSZ/loomcode/internal/tool"
 )
 
 // Mode Agent 模式
@@ -541,7 +541,7 @@ func (a *MultiAgent) judgeMaxCandidates(ctx context.Context, task string, candid
 // buildPlanPrompt Plan 模式系统提示
 func (a *MultiAgent) buildPlanPrompt() string {
 	var sb strings.Builder
-	sb.WriteString("You are Helix in Plan mode.\n")
+	sb.WriteString("You are LoomCode in Plan mode.\n")
 	sb.WriteString("Your role is to analyze code and create development plans.\n")
 	sb.WriteString("You have READ-ONLY access to tools. Do NOT modify any files.\n")
 	sb.WriteString("Provide a clear, step-by-step plan for implementation.\n")
@@ -551,7 +551,7 @@ func (a *MultiAgent) buildPlanPrompt() string {
 // buildComposePrompt Compose 模式系统提示
 func (a *MultiAgent) buildComposePrompt() string {
 	var sb strings.Builder
-	sb.WriteString("You are Helix in Compose mode.\n")
+	sb.WriteString("You are LoomCode in Compose mode.\n")
 	sb.WriteString("Your role is specification-driven development.\n")
 	sb.WriteString("Follow the specification to implement features step by step.\n")
 	sb.WriteString("Test your changes after each implementation step.\n")

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ShawnLiuSZ/Helix/internal/session"
+	"github.com/ShawnLiuSZ/loomcode/internal/session"
 )
 
 // SessionManagerProvider 为会话工具提供只读访问能力。

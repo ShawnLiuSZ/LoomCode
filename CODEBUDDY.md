@@ -6,7 +6,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 ## 项目概述
 
-**Helix CLI** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 DeepSeek-Reasonix 和 MiMo-Code 的优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置接入。
+**LoomCode CLI** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 DeepSeek-Reasonix 和 MiMo-Code 的优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置接入。
 
 - 语言: Go（CGO_ENABLED=0 单二进制分发）
 - 配置: TOML
@@ -22,20 +22,20 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 
 | 文档 | 内容 |
 |------|------|
-| `docs/HELIX_PLAN.md` | 分 Phase 开发计划、MVP 策略 |
-| `docs/HELIX_ARCHITECTURE.md` | 架构设计、模块职责、数据流、安全模型 |
-| `docs/HELIX_TEST_GUIDE.md` | 测试规范、数据准备、Mock/Stub 策略 |
-| `docs/HELIX_TEST_GENERATORS.md` | Mock/Stub 生成器及接口集成示例 |
+| `docs/LOOMCODE_PLAN.md` | 分 Phase 开发计划、MVP 策略 |
+| `docs/LOOMCODE_ARCHITECTURE.md` | 架构设计、模块职责、数据流、安全模型 |
+| `docs/LOOMCODE_TEST_GUIDE.md` | 测试规范、数据准备、Mock/Stub 策略 |
+| `docs/LOOMCODE_TEST_GENERATORS.md` | Mock/Stub 生成器及接口集成示例 |
 
 ---
 
 ## 构建命令
 
 ```bash
-make build          # go build -o bin/helix cmd/helix/main.go
+make build          # go build -o bin/loomcode cmd/loomcode/main.go
 make test           # go test ./...
 make lint           # golangci-lint run
-make install        # go install ./cmd/helix
+make install        # go install ./cmd/loomcode
 make release        # goreleaser build --snapshot --clean
 ```
 
@@ -44,7 +44,7 @@ make release        # goreleaser build --snapshot --clean
 ## 架构概要
 
 ```
-cmd/helix/main.go          ← CLI 入口
+cmd/loomcode/main.go          ← CLI 入口
 internal/
   config/                  ← TOML 配置加载、环境变量注入
   provider/                ← 多厂商模型接入（核心可扩展层）
@@ -98,18 +98,18 @@ internal/
 4. DeepSeek Provider
 5. 工具注册 + 执行
 6. Agent 推理循环
-7. CLI 入口 (helix run)
+7. CLI 入口 (loomcode run)
 8. Bubble Tea TUI
 9. install.sh + .goreleaser.yaml
 ```
 
-策略是"可交互优先"——尽快做出最小可用版本，能跑通 `helix run "任务"` 的端到端闭环。
+策略是"可交互优先"——尽快做出最小可用版本，能跑通 `loomcode run "任务"` 的端到端闭环。
 
 ---
 
 ## Provider 扩展方式
 
-接入新厂商只需编辑 `helix.toml`，使用 `kind = "openai"` 即可，无需写代码：
+接入新厂商只需编辑 `loomcode.toml`，使用 `kind = "openai"` 即可，无需写代码：
 
 ```toml
 [[providers]]

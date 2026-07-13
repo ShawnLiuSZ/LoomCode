@@ -1,4 +1,4 @@
-# Helix 优化建议文档
+# LoomCode 优化建议文档
 
 > 基于对 ~21k 行代码、110 个 `.go` 文件、17 个 `internal/` 包的实地审查（2026-06-19）
 > 审查范围：终端用户体验 · 性能与成本 · 架构与代码质量 · 生态分发与集成
@@ -7,9 +7,9 @@
 
 ## 0. 一句话结论
 
-**Helix 当前的瓶颈不是"还缺什么功能"，而是"已经写好的功能没接进真实执行路径"。**
+**LoomCode 当前的瓶颈不是"还缺什么功能"，而是"已经写好的功能没接进真实执行路径"。**
 
-`cmd/helix/main.go` 只 import 了 8 个 `internal/` 包；路线图标为 `✅ 完成` 的特性中，约有 7 项是**编译通过、测试通过、但 `main` 永远不会调用**的死代码或 stub。与此同时，唯一真正跑在主路径上的 TUI，存在一个让"AI 回复永不显示"的 P0 断裂。
+`cmd/loomcode/main.go` 只 import 了 8 个 `internal/` 包；路线图标为 `✅ 完成` 的特性中，约有 7 项是**编译通过、测试通过、但 `main` 永远不会调用**的死代码或 stub。与此同时，唯一真正跑在主路径上的 TUI，存在一个让"AI 回复永不显示"的 P0 断裂。
 
 所以本文档的核心建议是：**把投入从"继续造新功能"转向"接线 + 硬化已有功能"**——这是当前性价比最高的方向。下面所有结论都带 `文件:行号`，可直接定位。
 
@@ -20,7 +20,7 @@
 ### 1.1 证据
 
 - `go build ./...`、`go vet ./...`、`go test ./...` **全部通过**（实测）。问题不在编译正确性。
-- `cmd/helix/main.go` 实际 import 的 `internal/` 包只有：`agent`、`config`、`dashboard`、`provider`(+deepseek/mimo/openai)、`session`、`tool`、`ui`。
+- `cmd/loomcode/main.go` 实际 import 的 `internal/` 包只有：`agent`、`config`、`dashboard`、`provider`(+deepseek/mimo/openai)、`session`、`tool`、`ui`。
 - 以下包**未被任何非测试文件引用**（验证：跨包 grep 构造函数无命中）：
   `internal/cache`、`internal/control`、`internal/voice`、`internal/lsp`、`internal/mcp`、`internal/memory`、`internal/errors`，以及 `agent/dream.go`、`agent/hooks.go`。
 
@@ -74,8 +74,8 @@
 | P0 | AI 回复永不显示（见 P0-1） | `app.go:752-773` | 见 P0-1 |
 | P1 | 成本显示恒为 `$0.0000`：`costSession/Total/Last` 声明并渲染，但全代码无赋值 | `app.go:70-72,414,742-750` | 从响应 usage 累加，或删掉这块 UI 以免误导 |
 | P1 | `/sessions` 在命令表和 `/help` 里宣传，但 `handleCommand` 无对应 case → "未知命令" | `app.go:89,358`，switch `337-427` | 加 `/sessions` 处理 + 仿 `showModelPicker` 的交互式选择器 |
-| P1 | 首次无 API key：TUI 正常启动，但首条消息在请求时才失败，且该错误可能因 P0-1 根本不渲染 | `config.go:115`，`main.go:230`，`provider.go:120` | 启动时检测缺 key，在 TUI 顶部显示可操作提示（"运行 helix setup 或设置 .env"） |
-| P1 | `helix setup` 不是向导，只是打印说明并生成 `.env` 模板 | `main.go:141-169` | 改为交互式：选 provider → 粘贴 key → 写配置 → 跑一次测试请求 |
+| P1 | 首次无 API key：TUI 正常启动，但首条消息在请求时才失败，且该错误可能因 P0-1 根本不渲染 | `config.go:115`，`main.go:230`，`provider.go:120` | 启动时检测缺 key，在 TUI 顶部显示可操作提示（"运行 loomcode setup 或设置 .env"） |
+| P1 | `loomcode setup` 不是向导，只是打印说明并生成 `.env` 模板 | `main.go:141-169` | 改为交互式：选 provider → 粘贴 key → 写配置 → 跑一次测试请求 |
 | P1 | 错误信息泄漏裸 Go error（HTTP/JSON/transport 直接 `%v` 给用户） | `main.go:100,114,239,252`，`app.go:182,766` | 对常见失败类（缺 key/401/网络/模型不存在）映射为短提示，原始错误藏到 `--verbose` |
 | P1 | 无中断：运行中用 `context.Background()`，Esc 不能取消当轮，Ctrl+C 直接退整个程序 | `app.go:754` | 存 `CancelFunc`，运行时 Esc 取消当轮，Ctrl+C 保留为退出 |
 | P1 | 无滚动回看：超过一屏的历史永久不可达，无 PgUp/PgDn | `app.go:636-645` | 引入 Bubbles `viewport` 或加滚动 offset |
@@ -117,7 +117,7 @@
 | P1 | `ui/app.go` 是 849 行 god-file（TUI 循环+按键+命令解析+渲染+流式+env 脱敏），且 `internal/ui` **零测试** | `app.go:23-863` | 拆 `commands.go`/`render.go`/`update.go`，命令解析抽成可测 dispatcher 加表驱动测试 |
 | P1 | 三个 provider 各自复制一份 SSE 解析（`lineScanner`/`lineReader`/`readSSEStream` 命名都不一致 = copy-paste 漂移） | `deepseek:239,349`，`mimo:239,322`，`openai:228` | 抽 `internal/provider` 共享 `sseScanner` + `readSSE(resp, parseFn)`，各 provider 只给 per-chunk parser |
 | P1 | "分布式"名不副实（无网络）；"语义记忆"用 hash 假 embedding | `agent/distributed.go`；`semantic.go:213-220` | 要么实现真能力，要么改名/标实验，别在路线图标"完成" |
-| P2 | `cmd/helix/main.go`(389 行) 的 `createProvider`/选路/REPL 无测试，仅 4 个 env helper 测试 | `main.go` | 抽 `createProvider`/flag 解析为可测函数，用 mock provider 跑 REPL 集成测试 |
+| P2 | `cmd/loomcode/main.go`(389 行) 的 `createProvider`/选路/REPL 无测试，仅 4 个 env helper 测试 | `main.go` | 抽 `createProvider`/flag 解析为可测函数，用 mock provider 跑 REPL 集成测试 |
 | P2 | `runMax` 的"评委"其实是"返回最长非空串" | `agent/modes.go:238-244` | 用 LLM-as-judge 或带分启发式替代 `len()` |
 | P2 | `agent/dream.go`+`hooks.go` 投机式存在、从不调用；hooks 的天然接入点是工具执行生命周期 | 两文件无引用 | 把 hooks 接进 `executeTools`，dream 移到 `experimental` build tag |
 | P2 | `go.mod` 锁到 patch 级 `go 1.26.3`（应为 `1.26`），逼所有人用精确工具链 | `go.mod:3` | 改 `go 1.26`（或更低，见 P0-5），跑 `go mod tidy`（当前依赖全标 `// indirect` 不实） |
@@ -138,7 +138,7 @@
 | P1 | 无 `LICENSE` 文件，但 README/goreleaser/docs 到处声明 MIT 并链接 `../LICENSE` | `ls LICENSE*` 无 | 加顶层 MIT `LICENSE` |
 | P1 | Dashboard 是假数据 + WebSocket 是 stub（`/ws` 只回 `{"status":"ready"}`，`Broadcast` 空循环），但 examples 当真实端点宣传 | `dashboard/handlers.go`，`websocket.go` | 注入真实 session/cost，或明确标为 UI mockup |
 | P1 | `docs/README.md` 索引 6+ 死链（`reference/provider-interface.md`、`reference/mcp-protocol.md`、整个 `explanation/*` 空目录） | `docs/explanation/` 为空 | 补 stub 页或删链；CONTRIBUTING 的"新增 Provider"尤其依赖缺失的 `provider-interface.md` |
-| P1 | `helix dashboard` 未写进 CLI 参考，也不在 `usage()` | `docs/reference/cli-commands.md`；`main.go:312-326` | 文档补 `helix dashboard [addr]`，usage 补该命令 |
+| P1 | `loomcode dashboard` 未写进 CLI 参考，也不在 `usage()` | `docs/reference/cli-commands.md`；`main.go:312-326` | 文档补 `loomcode dashboard [addr]`，usage 补该命令 |
 | P1 | 插件"市场"是孤儿死代码，`plugin.go` 还未提交；`Start()` 从不调 `Init()`，与 example 矛盾 | `mcp/plugin.go`（`?? internal/mcp/plugin.go`） | 提交文件、接线或停止宣称完成、修 `Init()→Start()` 生命周期 |
 | P2 | 版本三方不一致：README/cli-commands 写 `0.1.0`、CHANGELOG `[0.1.0]`、路线图到 `v0.4.0`、二进制默认 `dev` | 多处 | 以 git tag 为唯一真相源对齐 |
 | P2 | `examples/{basic,dashboard,plugin}` 各只有一个 README，无可跑代码 | `examples/` | 放最小可运行示例，或并入 docs |
