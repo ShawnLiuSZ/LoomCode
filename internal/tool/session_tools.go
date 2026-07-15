@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ShawnLiuSZ/loomcode/internal/session"
 )
@@ -164,7 +165,11 @@ func (t *ReadSessionTool) Execute(ctx context.Context, args map[string]any) (*Re
 	for _, m := range messages {
 		content := m.Content
 		if len(content) > 500 {
-			content = content[:500] + "..."
+			end := 500
+			for end > 0 && !utf8.RuneStart(content[end]) {
+				end--
+			}
+			content = content[:end] + "..."
 		}
 		items = append(items, msgSummary{
 			Timestamp: m.Timestamp,

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ShawnLiuSZ/loomcode/internal/consts"
 	"github.com/ShawnLiuSZ/loomcode/internal/provider"
@@ -318,5 +319,9 @@ func truncateSensitive(s string) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "...(truncated)"
+	end := maxLen
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end] + "...(truncated)"
 }

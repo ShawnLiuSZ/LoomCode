@@ -129,6 +129,11 @@ func (e *Executor) Execute(ctx context.Context, calls []Call) []*Result {
 			wg.Add(1)
 			go func(idx int, c Call) {
 				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						results[idx] = &Result{Error: fmt.Sprintf("tool %q panicked: %v", c.Name, r)}
+					}
+				}()
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				results[idx] = e.executeOne(ctx, c)
@@ -190,6 +195,9 @@ func (e *Executor) executeOne(ctx context.Context, call Call) *Result {
 	result, err := tool.Execute(ctx, call.Args)
 	if err != nil {
 		return &Result{Error: err.Error()}
+	}
+	if result == nil {
+		return &Result{Error: fmt.Sprintf("tool %q returned nil result", call.Name)}
 	}
 
 	// Post-hooks

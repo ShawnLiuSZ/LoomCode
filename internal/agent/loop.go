@@ -466,7 +466,10 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 		}
 
 		// 达到步数上限：发提示后正常结束，保留已生成内容（而非发 error 让 UI 丢弃内容）
-		textCh <- fmt.Sprintf("\n\n[已达到最大步数限制 (%d)。可使用 /goal 设置停止条件，或 /steps 增大步数限制后继续。]", a.maxSteps)
+		select {
+		case textCh <- fmt.Sprintf("\n\n[已达到最大步数限制 (%d)。可使用 /goal 设置停止条件，或 /steps 增大步数限制后继续。]", a.maxSteps):
+		case <-ctx.Done():
+		}
 	}()
 
 	return textCh, errCh

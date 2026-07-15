@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 // resolveWithinRoot 校验 path 落在 workspace root 之内并返回清理后的绝对路径。
@@ -114,7 +115,11 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 
 	content := string(data)
 	if len(data) > maxReadSize {
-		content = content[:maxReadSize] + "\n[truncated]"
+		end := maxReadSize
+		for end > 0 && !utf8.RuneStart(content[end]) {
+			end--
+		}
+		content = content[:end] + "\n[truncated]"
 	}
 
 	return &Result{Content: content}, nil

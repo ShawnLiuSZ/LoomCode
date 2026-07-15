@@ -27,7 +27,7 @@ func (c *WSClient) closeSend() {
 	c.closeOnce.Do(func() { close(c.send) })
 }
 
-// WSHub WebSocket 管理器
+// TSHub WebSocket 管理器
 type WSHub struct {
 	clients    map[*WSClient]bool
 	broadcast  chan []byte
@@ -35,6 +35,7 @@ type WSHub struct {
 	unregister chan *WSClient
 	mu         sync.RWMutex
 	done       chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewWSHub 创建 WebSocket 管理器
@@ -51,8 +52,9 @@ func NewWSHub() *WSHub {
 }
 
 // Stop 停止 WSHub 主循环，让 goroutine 退出（N10）。
+// 使用 sync.Once 保证重复调用不会 panic（close 已关闭 channel）。
 func (h *WSHub) Stop() {
-	close(h.done)
+	h.stopOnce.Do(func() { close(h.done) })
 }
 
 // run WebSocket 管理器主循环

@@ -175,8 +175,6 @@ function initWebSocket() {
                 renderCostChart(payload.history);
             } else if (type === 'status') {
                 renderStatus(payload);
-            } else if (type === 'sessions') {
-                renderSessions(payload);
             }
         } catch (err) {
             // 忽略非 JSON 消息

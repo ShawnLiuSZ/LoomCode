@@ -426,6 +426,8 @@ func chatCommand() {
 		}
 		if op, err := createProvider(&pc); err == nil {
 			allProviders = append(allProviders, op)
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: provider %q 创建失败，已跳过: %v\n", pc.Name, err)
 		}
 	}
 

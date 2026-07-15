@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -180,10 +181,11 @@ func (m *Manager) Delete(id string) error {
 
 // AddMessage 添加消息到活跃会话
 func (m *Manager) AddMessage(msg Message) {
-	m.mu.Lock()
-	s := m.sessions[m.activeID]
-	m.mu.Unlock()
+	// 持有 m.mu.RLock 直到操作完成，防止 Delete 在获取 s.mu 前删除文件导致 TOCTOU。
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
+	s := m.sessions[m.activeID]
 	if s == nil {
 		return
 	}
@@ -214,10 +216,11 @@ func (m *Manager) Save(id string) error {
 // UpdateModelProvider 更新活动会话的模型与 provider，并持久化 meta。
 // 用于 /model 切换后让下次启动恢复上次选择的模型。
 func (m *Manager) UpdateModelProvider(model, provider string) error {
-	m.mu.Lock()
-	s := m.sessions[m.activeID]
-	m.mu.Unlock()
+	// 持有 m.mu.RLock 防止 Delete 在操作中途删除 session。
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
+	s := m.sessions[m.activeID]
 	if s == nil {
 		return fmt.Errorf("no active session")
 	}
@@ -372,27 +375,38 @@ func loadFromFile(path string) (*Session, error) {
 	}
 	defer f.Close()
 
-	decoder := json.NewDecoder(f)
+	// 使用 bufio.Scanner 按行读取，每行独立 json.Unmarshal。
+	// json.Decoder 是流式的，损坏行后恢复行为未定义，可能消费跨行内容。
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 单行最大 10MB
 
 	// 第一行：元数据
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("read meta line: %w", err)
+		}
+		return nil, fmt.Errorf("empty session file")
+	}
 	var meta Meta
-	if err := decoder.Decode(&meta); err != nil {
+	if err := json.Unmarshal(scanner.Bytes(), &meta); err != nil {
 		return nil, fmt.Errorf("decode meta: %w", err)
 	}
 
 	// 后续行：消息
 	var messages []Message
 	lineNum := 1
-	for decoder.More() {
+	for scanner.Scan() {
 		lineNum++
 		var msg Message
-		if err := decoder.Decode(&msg); err != nil {
-			// H13 修复：单行损坏不应丢弃后续所有消息。
-			// JSONL 每行是独立的完整 JSON 值，跳过损坏行后 Decode 会重新对齐到下一行。
+		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+			// 单行损坏不应丢弃后续所有消息，跳过该行继续。
 			fmt.Fprintf(os.Stderr, "warning: %s line %d: %v (skipped)\n", path, lineNum, err)
 			continue
 		}
 		messages = append(messages, msg)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan session file: %w", err)
 	}
 
 	return &Session{

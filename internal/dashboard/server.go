@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -75,6 +76,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/cost", s.requireAuth(s.handleCost))
 	s.mux.HandleFunc("/api/status", s.requireAuth(s.handleStatus))
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
+
+	// 静态资源（CSS/JS）：从 embed.FS 的 static/ 子目录 serve
+	if staticSub, err := fs.Sub(staticFiles, "static"); err == nil {
+		s.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
+	}
 }
 
 // requireAuth 是中间件：检查 query param token 是否匹配服务端生成的 authToken。
