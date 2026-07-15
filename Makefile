@@ -6,7 +6,14 @@ BUILD_DIR  := bin
 CMD_DIR    := cmd/loomcode
 
 GO         := go
-GOFLAGS    := -ldflags="-s -w"
+VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS    := -s -w \
+              -X main.version=$(VERSION) \
+              -X main.commit=$(COMMIT) \
+              -X main.date=$(BUILD_DATE)
+GOFLAGS    := -ldflags="$(LDFLAGS)"
 
 # Build: 同时构建 loomcode 和 loom 两个二进制（同一源码）
 build:

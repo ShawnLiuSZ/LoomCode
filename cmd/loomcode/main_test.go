@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ShawnLiuSZ/loomcode/internal/config"
 )
 
 func TestLoadEnvFiles_FlagPriority(t *testing.T) {
@@ -38,7 +40,14 @@ func TestExportEnvToSubprocess(t *testing.T) {
 	t.Setenv("LOOMCODE_PROVIDER", "deepseek")
 	t.Setenv("IRRELEVANT_KEY", "should_not_appear")
 
-	env := ExportEnvToSubprocess()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{APIKeyEnv: "DEEPSEEK_API_KEY"},
+			{APIKeyEnv: "OPENAI_API_KEY"},
+		},
+	}
+
+	env := ExportEnvToSubprocess(cfg)
 
 	found := make(map[string]bool)
 	for _, e := range env {
@@ -64,12 +73,15 @@ func TestExportEnvToSubprocess(t *testing.T) {
 }
 
 func TestExportEnvToSubprocess_Empty(t *testing.T) {
-	// 清空所有相关环境变量后测试
 	for _, key := range []string{"DEEPSEEK_API_KEY", "MIMO_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TAVILY_API_KEY", "LOOMCODE_PROVIDER", "LOOMCODE_MODEL"} {
 		os.Unsetenv(key)
 	}
 
-	env := ExportEnvToSubprocess()
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{},
+	}
+
+	env := ExportEnvToSubprocess(cfg)
 
 	// PATH、HOME、USER 等系统变量应始终存在
 	foundPath := false

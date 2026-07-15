@@ -6,6 +6,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 )
 
@@ -17,7 +18,9 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	_, _ = w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		log.Printf("dashboard: write response: %v", err)
+	}
 }
 
 // handleSessions 处理会话列表（Mockup）
@@ -28,7 +31,9 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(sessions)
+	if err := json.NewEncoder(w).Encode(sessions); err != nil {
+		log.Printf("dashboard: encode sessions: %v", err)
+	}
 }
 
 // handleCost 处理成本统计（Mockup）
@@ -41,7 +46,9 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(cost)
+	if err := json.NewEncoder(w).Encode(cost); err != nil {
+		log.Printf("dashboard: encode cost: %v", err)
+	}
 }
 
 // handleStatus 处理 Provider 状态（Mockup）
@@ -54,5 +61,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Printf("dashboard: encode status: %v", err)
+	}
 }

@@ -329,6 +329,9 @@ func (c *SSEClient) ServerInfo() ServerInfo {
 
 // ListTools 列出可用工具
 func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not connected")
+	}
 	resp, err := c.call(ctx, MethodListTools, nil)
 	if err != nil {
 		return nil, err
@@ -345,6 +348,9 @@ func (c *SSEClient) ListTools(ctx context.Context) ([]Tool, error) {
 
 // CallTool 调用工具
 func (c *SSEClient) CallTool(ctx context.Context, name string, args map[string]any) (*CallToolResult, error) {
+	if !c.initialized {
+		return nil, fmt.Errorf("client not connected")
+	}
 	params := CallToolParams{
 		Name:      name,
 		Arguments: args,
@@ -417,7 +423,14 @@ func (c *SSEClient) waitForResponse(ctx context.Context, id int64) (*Response, e
 // waitForResponseWithRetry 等待响应，支持重连后重试。
 // 每次循环重新获取 c.notifyCh，避免重连期间通道被替换后错过信号（L5）。
 func (c *SSEClient) waitForResponseWithRetry(ctx context.Context, id int64) (*Response, error) {
-	timeout := time.After(30 * time.Second)
+	defaultTimeout := 30 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout := time.Until(deadline)
+		if timeout > 0 {
+			defaultTimeout = timeout
+		}
+	}
+	timeout := time.After(defaultTimeout)
 
 	for {
 		// 每次循环重新获取 notifyCh，防止重连时通道被 close+替换导致等待者错过信号

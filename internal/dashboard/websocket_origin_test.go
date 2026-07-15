@@ -33,7 +33,10 @@ func TestIsAllowedOrigin_ExactHost(t *testing.T) {
 }
 
 func TestHandleWebSocket_RejectsMissingOrigin(t *testing.T) {
-	s := NewServer("127.0.0.1:0")
+	s, err := NewServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	cases := []struct {
 		name       string
 		setOrigin  bool
@@ -63,7 +66,10 @@ func TestHandleWebSocket_RejectsMissingOrigin(t *testing.T) {
 }
 
 func TestHandleWebSocket_RejectsMissingToken(t *testing.T) {
-	s := NewServer("127.0.0.1:0")
+	s, err := NewServer("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 	req.Header.Set("Origin", "http://localhost:8080")
 	rec := httptest.NewRecorder()

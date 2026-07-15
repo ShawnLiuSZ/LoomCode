@@ -1455,25 +1455,22 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 func (a *App) renderWelcome() string {
 	var sb strings.Builder
 
-	// DNA 双螺旋配色
+	// 单色 Logo（Loom = 织机）
 	loomcodeStyle := lipgloss.NewStyle().Bold(true)
 	blue := lipgloss.Color("39") // #00BFFF
-	cyan := lipgloss.Color("43") // #00CED1
-	dim := lipgloss.Color("24")  // #585858
 	verStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
 	tipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
 
-	// 每行用不同颜色交替（模拟双螺旋）
 	logo := []struct {
 		text  string
 		color lipgloss.TerminalColor
 	}{
-		{"  ██╗  ██╗███████╗██╗     ██╗███████╗", blue},
-		{"  ██║  ██║██╔════╝██║     ██║██╔════╝", cyan},
-		{"  ███████║█████╗  ██║     ██║█████╗  ", blue},
-		{"  ██╔══██║██╔══╝  ██║     ██║██╔══╝  ", cyan},
-		{"  ██║  ██║███████╗███████╗██║███████╗", blue},
-		{"  ╚═╝  ╚═╝╚══════╝╚══════╝╚═╝╚══════╝", dim},
+		{"  ██╗        █████╗    █████╗   ███╗   ███╗", blue},
+		{"  ██║       ██╔══██╗  ██╔══██╗  ████╗ ████║", blue},
+		{"  ██║       ██║  ██║  ██║  ██║  ██╔████╔██║", blue},
+		{"  ██║       ██║  ██║  ██║  ██║  ██║╚██╔╝██║", blue},
+		{"  ███████╗  ╚█████╔╝  ╚█████╔╝  ██║ ╚═╝ ██║", blue},
+		{"  ╚══════╝   ╚════╝    ╚════╝   ╚═╝     ╚═╝", blue},
 	}
 
 	tips := []string{

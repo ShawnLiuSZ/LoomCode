@@ -8,7 +8,10 @@ import (
 )
 
 func TestServerRoutes(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	tests := []struct {
 		path   string
@@ -33,7 +36,10 @@ func TestServerRoutes(t *testing.T) {
 }
 
 func TestHandleIndex(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
@@ -49,7 +55,10 @@ func TestHandleIndex(t *testing.T) {
 }
 
 func TestAPIRequiresAuth(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	for _, path := range []string{"/api/sessions", "/api/cost", "/api/status"} {
 		req := httptest.NewRequest("GET", path, nil)
@@ -63,7 +72,10 @@ func TestAPIRequiresAuth(t *testing.T) {
 }
 
 func TestAPIWithValidToken(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/api/sessions?token="+s.AuthToken(), nil)
 	w := httptest.NewRecorder()
@@ -75,7 +87,10 @@ func TestAPIWithValidToken(t *testing.T) {
 }
 
 func TestAPIWithBearerToken(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/api/sessions", nil)
 	req.Header.Set("Authorization", "Bearer "+s.AuthToken())
@@ -88,7 +103,10 @@ func TestAPIWithBearerToken(t *testing.T) {
 }
 
 func TestHandleSessions(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/api/sessions?token="+s.AuthToken(), nil)
 	w := httptest.NewRecorder()
@@ -115,7 +133,10 @@ func TestHandleSessions(t *testing.T) {
 }
 
 func TestHandleCost(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/api/cost?token="+s.AuthToken(), nil)
 	w := httptest.NewRecorder()
@@ -135,7 +156,10 @@ func TestHandleCost(t *testing.T) {
 }
 
 func TestHandleStatus(t *testing.T) {
-	s := NewServer(":0")
+	s, err := NewServer(":0")
+	if err != nil {
+		t.Fatalf("NewServer failed: %v", err)
+	}
 
 	req := httptest.NewRequest("GET", "/api/status?token="+s.AuthToken(), nil)
 	w := httptest.NewRecorder()
