@@ -131,12 +131,16 @@ func Load(path string) (*Config, error) {
 }
 
 // LoadDefault 按优先级查找并加载配置
-// 优先级: CLI flags > ./loomcode.toml > ~/.loomcode/config.toml > 内置默认
+// 优先级: --config flag > ./loomcode.toml > ~/.loomcode/loomcode.toml > ~/.loomcode/config.toml > 内置默认
 func LoadDefault() (*Config, error) {
 	paths := []string{"./loomcode.toml"}
 	// 仅当 HOME 可用时才纳入用户级配置路径；否则跳过，避免退化为 cwd 相对路径被恶意配置注入。
 	if home, ok := homeDir(); ok {
-		paths = append(paths, filepath.Join(home, ".loomcode", "config.toml"))
+		dir := filepath.Join(home, ".loomcode")
+		paths = append(paths,
+			filepath.Join(dir, "loomcode.toml"), // 首选文件名
+			filepath.Join(dir, "config.toml"),  // 向后兼容
+		)
 	}
 
 	for _, p := range paths {
@@ -148,16 +152,17 @@ func LoadDefault() (*Config, error) {
 	return DefaultConfig(), nil
 }
 
-// resolveAPIKeys 从环境变量注入 API Key
+// resolveAPIKeys 检查各 Provider 的 API Key 环境变量是否已设置。
+// 缺失时打印警告但不阻止加载——模型仍可在 /model 中列出和切换，
+// 仅在实际发起 API 调用时才会因鉴权失败而报错。
 func (c *Config) resolveAPIKeys() error {
 	for i := range c.Providers {
 		p := &c.Providers[i]
 		if p.APIKeyEnv == "" {
 			continue
 		}
-		key := os.Getenv(p.APIKeyEnv)
-		if key == "" {
-			return fmt.Errorf("provider %q requires environment variable %q to be set", p.Name, p.APIKeyEnv)
+		if os.Getenv(p.APIKeyEnv) == "" {
+			fmt.Fprintf(os.Stderr, "Warning: provider %q 环境变量 %q 未设置，模型可浏览但无法调用\n", p.Name, p.APIKeyEnv)
 		}
 	}
 	return nil

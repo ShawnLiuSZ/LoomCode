@@ -199,19 +199,27 @@ func setupCommand() {
 		os.Exit(1)
 	}
 
-	// 写入 loomcode.toml
-	if err := config.WriteConfig(cfg, "loomcode.toml"); err != nil {
-		fmt.Fprintf(os.Stderr, "写入 loomcode.toml 失败: %v\n", err)
+	// 写入 ~/.loomcode/loomcode.toml（全局配置目录）
+	home, _ := os.UserHomeDir()
+	configDir := filepath.Join(home, ".loomcode")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "创建配置目录失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("✓ loomcode.toml 已生成")
+	configPath := filepath.Join(configDir, "loomcode.toml")
+	if err := config.WriteConfig(cfg, configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "写入 %s 失败: %v\n", configPath, err)
+		os.Exit(1)
+	}
+	fmt.Printf("✓ %s 已生成\n", configPath)
 
-	// 写入 .env（已存在则追加）
-	if err := config.WriteEnvFile(envVars, ".env"); err != nil {
-		fmt.Fprintf(os.Stderr, "写入 .env 失败: %v\n", err)
+	// 写入 ~/.loomcode/.env（全局，已存在则追加）
+	envPath := filepath.Join(configDir, ".env")
+	if err := config.WriteEnvFile(envVars, envPath); err != nil {
+		fmt.Fprintf(os.Stderr, "写入 %s 失败: %v\n", envPath, err)
 		os.Exit(1)
 	}
-	fmt.Println("✓ .env 已生成")
+	fmt.Printf("✓ %s 已生成\n", envPath)
 
 	// 写出 JSON Schema 供编辑器自动补全/校验
 	if schemaPath, err := config.WriteSchemaFile(); err != nil {
@@ -462,9 +470,9 @@ func chatCommand() {
 		}
 	}
 
-	// 不启用 WithMouseCellMotion：它会接管终端的文本选择，导致无法用鼠标复制内容。
-	// 滚动改用键盘 PageUp/PageDown（已内置支持）。
-	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
+	// WithMouseCellMotion：捕获鼠标滚轮事件用于 viewport 滚动；
+	// 按住 Shift 仍可终端文本选择（iTerm2/VSCode Terminal 支持）。
+	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithInputTTY())
 	app.SetProgram(program)
 
 	// 1.13 修复：捕获 SIGTERM/SIGHUP，终端关闭或 kill 时通知 TUI 保存退出，

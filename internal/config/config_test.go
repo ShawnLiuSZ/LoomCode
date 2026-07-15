@@ -67,6 +67,8 @@ func TestLoadConfig_MissingAPIKey(t *testing.T) {
 	content := `
 [[providers]]
 name        = "test"
+kind        = "openai"
+base_url    = "https://api.example.com/v1"
 api_key_env = "MISSING_KEY"
 
   [[providers.models]]
@@ -76,10 +78,14 @@ api_key_env = "MISSING_KEY"
 		t.Fatalf("write config: %v", err)
 	}
 
-	// 不设置环境变量，应该报错
-	_, err := Load(path)
-	if err == nil {
-		t.Error("expected error for missing API key env var")
+	// 不设置环境变量，应加载成功（打印警告但不阻止），
+	// 模型仍可在 /model 中列出，仅实际调用时才会鉴权失败。
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() should succeed with missing API key (warn-only), got error: %v", err)
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Models[0].ID != "m1" {
+		t.Errorf("expected provider 'test' with model 'm1', got %+v", cfg.Providers)
 	}
 }
 

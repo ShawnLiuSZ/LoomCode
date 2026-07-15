@@ -532,6 +532,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return a.handleKey(msg)
 
+	case tea.MouseMsg:
+		// 鼠标滚轮控制 viewport 滚动
+		switch msg.Type {
+		case tea.MouseWheelUp:
+			a.viewport.LineUp(3)
+		case tea.MouseWheelDown:
+			a.viewport.LineDown(3)
+		}
+		return a, nil
+
 	case streamChunkMsg:
 		a.streamMu.Lock()
 		a.streamBuf += string(msg)
@@ -1313,6 +1323,45 @@ func (a *App) View() string {
 		return "Initializing...\n"
 	}
 
+	// 动态计算各部分高度，确保 View() 返回的总高度 == a.height，
+	// 防止终端整屏滚动（viewport 应独占内部滚动）。
+	titleH := lipgloss.Height(a.renderTitle())
+	sepH := 1
+	statusBar := a.renderStatusBar()
+	statusH := lipgloss.Height(statusBar)
+	textareaView := a.textArea.View()
+	textareaH := lipgloss.Height(textareaView)
+
+	activityH := 0
+	if a.loading {
+		activityH = 1
+	}
+
+	approvalH := 0
+	if a.pendingApproval != nil {
+		approvalH = lipgloss.Height(a.renderApproval()) + 2 // +2 for surrounding \n
+	}
+
+	suggestionsH := 0
+	if a.showSuggestions && len(a.suggestions) > 0 {
+		suggestionsH = len(a.suggestions)
+	}
+
+	// 固定部分高度（不包括 viewport）
+	// viewport 部分占 viewport.Height + 1（后面有一个 \n）
+	fixedH := titleH + sepH + activityH + approvalH + suggestionsH + textareaH + statusH
+	targetVpHeight := a.height - fixedH - 1 // -1 for the \n after viewport
+	if targetVpHeight < 3 {
+		targetVpHeight = 3
+	}
+
+	// 如果 viewport 高度需要调整，更新它并重新设置内容
+	if a.viewport.Height != targetVpHeight {
+		a.viewport.Height = targetVpHeight
+		a.viewport.SetContent(a.renderMessages(targetVpHeight, ""))
+		a.viewport.GotoBottom()
+	}
+
 	var sb strings.Builder
 
 	// 标题栏
@@ -1357,11 +1406,11 @@ func (a *App) View() string {
 	}
 
 	// 输入区域（textarea）
-	sb.WriteString(a.textArea.View())
+	sb.WriteString(textareaView)
 	sb.WriteString("\n")
 
 	// 状态栏
-	sb.WriteString(a.renderStatusBar())
+	sb.WriteString(statusBar)
 
 	return sb.String()
 }
