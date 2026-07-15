@@ -136,6 +136,89 @@ func TestLoadDefault(t *testing.T) {
 	}
 }
 
+func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
+	// 模拟项目目录： loomcode.toml 只有注释，没有 provider
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	emptyLocal := filepath.Join(projectDir, "loomcode.toml")
+	if err := os.WriteFile(emptyLocal, []byte("# 配置已移到 ~/.loomcode/loomcode.toml\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	globalConfigDir := filepath.Join(globalDir, ".loomcode")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	globalConfig := filepath.Join(globalConfigDir, "loomcode.toml")
+	content := `
+default_provider = "mimo"
+
+[[providers]]
+name         = "mimo"
+display_name = "MiMo"
+kind         = "mimo"
+base_url     = "https://api.mimo.xiaomi.com/v1"
+api_key_env  = "MIMO_API_KEY"
+
+  [[providers.models]]
+  id   = "mimo-v2.5-pro"
+  name = "MiMo V2.5 Pro"
+  context_window = 262144
+`
+	if err := os.WriteFile(globalConfig, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", globalDir)
+	t.Setenv("MIMO_API_KEY", "test-key")
+	t.Chdir(projectDir)
+
+	cfg, err := LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault() error: %v", err)
+	}
+	if cfg.DefaultProvider != "mimo" {
+		t.Errorf("DefaultProvider = %q, want %q", cfg.DefaultProvider, "mimo")
+	}
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "mimo" {
+		t.Errorf("expected provider 'mimo', got %+v", cfg.Providers)
+	}
+}
+
+func TestLoadDefault_AllEmptyFallsBackToDefault(t *testing.T) {
+	projectDir := t.TempDir()
+	globalDir := t.TempDir()
+
+	emptyLocal := filepath.Join(projectDir, "loomcode.toml")
+	if err := os.WriteFile(emptyLocal, []byte("# empty\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	globalConfigDir := filepath.Join(globalDir, ".loomcode")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	emptyGlobal := filepath.Join(globalConfigDir, "loomcode.toml")
+	if err := os.WriteFile(emptyGlobal, []byte("# empty\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("HOME", globalDir)
+	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Chdir(projectDir)
+
+	cfg, err := LoadDefault()
+	if err != nil {
+		t.Fatalf("LoadDefault() error: %v", err)
+	}
+	if cfg.DefaultProvider != "deepseek" {
+		t.Errorf("DefaultProvider = %q, want %q", cfg.DefaultProvider, "deepseek")
+	}
+	if len(cfg.Providers) == 0 {
+		t.Error("expected default providers")
+	}
+}
+
 func TestValidate_DefaultProviderNotFound(t *testing.T) {
 	cfg := &Config{
 		DefaultProvider: "nonexistent",

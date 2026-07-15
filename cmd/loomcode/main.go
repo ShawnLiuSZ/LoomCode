@@ -93,13 +93,13 @@ func main() {
 }
 
 type runtime struct {
-	cfg      *config.Config
-	provCfg  *config.ProviderConfig
-	prov     provider.Provider
-	tools    *tool.Registry
-	perm     *control.Permission
-	plugins  *mcp.PluginManager
-	cpMgr    *tool.CheckpointManager
+	cfg     *config.Config
+	provCfg *config.ProviderConfig
+	prov    provider.Provider
+	tools   *tool.Registry
+	perm    *control.Permission
+	plugins *mcp.PluginManager
+	cpMgr   *tool.CheckpointManager
 }
 
 func initRuntime(chatMode bool) (*runtime, error) {
@@ -133,13 +133,13 @@ func initRuntime(chatMode bool) (*runtime, error) {
 	pm := connectPlugins(context.Background(), cfg.Plugins, tools)
 
 	return &runtime{
-		cfg:      cfg,
-		provCfg:  provCfg,
-		prov:     p,
-		tools:    tools,
-		perm:     perm,
-		plugins:  pm,
-		cpMgr:    cpMgr,
+		cfg:     cfg,
+		provCfg: provCfg,
+		prov:    p,
+		tools:   tools,
+		perm:    perm,
+		plugins: pm,
+		cpMgr:   cpMgr,
 	}, nil
 }
 
@@ -472,9 +472,9 @@ func chatCommand() {
 		}
 	}
 
-	// WithMouseCellMotion：捕获鼠标滚轮事件用于 viewport 滚动；
-	// 按住 Shift 仍可终端文本选择（iTerm2/VSCode Terminal 支持）。
-	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithInputTTY())
+	// 不启用 WithMouseCellMotion：它会在终端启用鼠标捕获模式，
+	// 导致鼠标无法选中/复制文本。用户可通过 PgUp/PgDn/方向键 滚动。
+	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
 	app.SetProgram(program)
 
 	// 1.13 修复：捕获 SIGTERM/SIGHUP，终端关闭或 kill 时通知 TUI 保存退出，
@@ -489,6 +489,11 @@ func chatCommand() {
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI 运行错误: %v\n", err)
 		os.Exit(1)
+	}
+
+	// 退出时打印 session ID，方便用户下次 --session 恢复
+	if sid := app.SessionID(); sid != "" {
+		fmt.Fprintf(os.Stderr, "\n🔁 使用 --session %s 可恢复当前会话\n", sid)
 	}
 }
 

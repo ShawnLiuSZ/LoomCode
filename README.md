@@ -101,6 +101,125 @@ loomcode schema > ~/.loomcode/schema.json
 
 ---
 
+## 接入大模型
+
+LoomCode 通过 Provider 适配器接入大模型。系统启动或执行 `/model` 切换时，**只读取已在 `loomcode.toml` 中配置的模型**；未配置的模型不会出现在可选列表中。接入模型即是把它声明到配置文件里。
+
+### 方式一：交互式配置向导（推荐）
+
+```bash
+loomcode setup
+```
+
+向导会：
+
+1. 选择内置 Provider（DeepSeek / MiMo / OpenAI）或自定义 OpenAI 兼容厂商
+2. 输入 API Key
+3. 选择默认模型
+4. 自动写入 `~/.loomcode/loomcode.toml` 和 `~/.loomcode/.env`
+5. 生成 JSON Schema 供编辑器补全
+
+完成后再运行 `loomcode chat` 或 `loomcode run` 即可使用已配置的模型。
+
+### 方式二：手动编辑配置
+
+配置文件位置（按优先级）：
+
+1. `./loomcode.toml`（项目级，最高优先级）
+2. `~/.loomcode/loomcode.toml`（全局用户配置）
+3. `~/.loomcode/config.toml`（向后兼容）
+
+完整示例见 [`loomcode.example.toml`](loomcode.example.toml)。最小可运行配置：
+
+```toml
+default_provider = "deepseek"
+
+[[providers]]
+name          = "deepseek"
+display_name  = "DeepSeek"
+kind          = "deepseek"
+base_url      = "https://api.deepseek.com"
+api_key_env   = "DEEPSEEK_API_KEY"
+default_model = "deepseek-v4-flash"
+
+  [[providers.models]]
+  id             = "deepseek-v4-flash"
+  name           = "DeepSeek V4 Flash"
+  context_window = 131072
+
+  [providers.models.cost]
+  input        = 0.14
+  cached_input = 0.014
+  output       = 0.28
+
+  [providers.models.capabilities]
+  tool_call    = true
+  prefix_cache = true
+```
+
+### 支持的 Provider 类型
+
+| `kind` | 厂商 | 认证方式 | 说明 |
+|--------|------|----------|------|
+| `deepseek` | DeepSeek | API Key (`Authorization: Bearer`) | 支持 reasoning_content、prefix cache、工具调用修复 |
+| `mimo` | 小米 MiMo | API Key / OAuth | 支持语音、推理、prefix cache |
+| `openai` | OpenAI 及任意 OpenAI 兼容厂商 | API Key | 通用适配，可用于 GPT 系列、本地兼容服务等 |
+
+自定义 OpenAI 兼容厂商时，只需把 `kind` 设为 `openai` 并填写正确的 `base_url`。
+
+### 模型配置字段
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `id` | 是 | 模型在 API 请求中使用的 ID，如 `deepseek-v4-pro` |
+| `name` | 是 | 展示名称 |
+| `context_window` | 是 | 上下文窗口大小（token 数） |
+| `cost.input` | 否 | 输入单价（每百万 token） |
+| `cost.cached_input` | 否 | 缓存命中输入单价（每百万 token） |
+| `cost.output` | 否 | 输出单价（每百万 token） |
+| `capabilities.reasoning` | 否 | 是否支持推理/thinking 模式 |
+| `capabilities.tool_call` | 否 | 是否支持函数/工具调用 |
+| `capabilities.prefix_cache` | 否 | 是否支持前缀缓存 |
+| `capabilities.vision` | 否 | 是否支持视觉输入 |
+| `capabilities.voice` | 否 | 是否支持语音输入 |
+
+### API Key 环境变量
+
+配置文件中 `api_key_env` 指定环境变量名，实际密钥从 `.env` 或系统环境变量读取：
+
+```bash
+# ~/.loomcode/.env 或 ./.env
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+MIMO_API_KEY=sk-xxxxxxxxxxxxxxxx
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+```
+
+`.env` 加载优先级：
+
+```
+1. ~/.loomcode/.env
+2. ./.env
+3. ./.env.local
+4. --env-file custom.env（最高优先级）
+```
+
+### 切换模型
+
+在 TUI 中：
+
+```bash
+/model           # 交互式选择（仅列出已配置模型）
+/model <id>      # 直接切换到指定已配置模型
+```
+
+CLI 启动时指定：
+
+```bash
+loomcode --model deepseek-v4-pro
+```
+
+---
+
 ## CLI 命令
 
 | 命令 | 说明 |

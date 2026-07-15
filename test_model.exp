@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+set timeout 5
+set env(LINES) 40
+set env(COLUMNS) 120
+spawn ./bin/loomcode
+expect "输入任务"
+send "/model\r"
+expect "选择模型"
+sleep 2
+send "\003"
+expect "再按一次"
+send "\003"
+expect eof

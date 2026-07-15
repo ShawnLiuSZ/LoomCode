@@ -169,23 +169,23 @@ type confirmQuitResetMsg struct{}
 // 所有可用命令
 var allCommands = []string{
 	"/help", "/mode", "/build", "/plan", "/compose", "/max",
-	"/goal", "/clear", "/cost", "/budget", "/env", "/model", "/skills", "/sessions", "/compact", "/queue", "/steps", "/remember", "/quit",
+	"/goal", "/clear", "/cost", "/budget", "/env", "/model", "/skills", "/sessions", "/resume", "/compact", "/queue", "/steps", "/remember", "/quit",
 }
 
 // RoleColor 角色→ANSI 颜色索引常量表，统一管理语义色，避免魔法数字扩散。
 const (
-	colorUser       = "6" // cyan
-	colorAssistant  = "3" // yellow
-	colorSystem     = "8" // bright black
-	colorTool       = "5" // magenta
-	colorDanger     = "1" // red — error/cost-red/diff-del/context-warn 共用
-	colorSuccess    = "2" // green
-	colorInfo       = "4" // blue
-	colorHighlight  = "6" // cyan (diff header)
-	colorSuggestion = "8" // bright black
-	colorMuted      = "7" // white
-	colorBg         = "7" // cursor background
-	colorFg         = "0" // black (cursor text)
+	colorUser       = "6"  // cyan
+	colorAssistant  = "3"  // yellow
+	colorSystem     = "8"  // bright black
+	colorTool       = "5"  // magenta
+	colorDanger     = "1"  // red — error/cost-red/diff-del/context-warn 共用
+	colorSuccess    = "2"  // green
+	colorInfo       = "4"  // blue
+	colorHighlight  = "6"  // cyan (diff header)
+	colorSuggestion = "8"  // bright black
+	colorMuted      = "7"  // white
+	colorBg         = "7"  // cursor background
+	colorFg         = "0"  // black (cursor text)
 	colorLogo       = "75" // light blue (version text)
 	colorLogoAccent = "39" // deep sky blue (#00BFFF, welcome logo)
 )
@@ -214,9 +214,9 @@ var (
 	approvalHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant)).Italic(true)
 
 	// renderWelcome 专用（原散落在函数内，现收入注册表）
-	logoStyle  = lipgloss.NewStyle().Bold(true)
-	verStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorLogo)).Bold(true)
-	tipStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted))
+	logoStyle = lipgloss.NewStyle().Bold(true)
+	verStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorLogo)).Bold(true)
+	tipStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted))
 
 	// textarea 光标样式（原散落在 NewApp 内，现收入注册表）
 	cursorBgStyle = lipgloss.NewStyle().Background(lipgloss.Color(colorBg))
@@ -317,6 +317,15 @@ func (a *App) SetModel(m string)                      { a.model = m; a.agent.Set
 func (a *App) SetWorkDir(d string)                    { a.agent.SetWorkDir(d) }
 func (a *App) SetProgram(p *tea.Program)              { a.program = p }
 func (a *App) SetHooks(hm *tool.HookManager)          { a.agent.SetHooks(hm) }
+
+// SessionID 返回当前活跃会话的 ID，用于退出时提示用户。
+// 无活跃会话时返回空字符串。
+func (a *App) SessionID() string {
+	if a.activeSess != nil {
+		return a.activeSess.ID
+	}
+	return ""
+}
 
 // SetCheckpointManager 注入编辑快照管理器，启用 /rewind 回退安全网。
 func (a *App) SetCheckpointManager(mgr *tool.CheckpointManager) { a.checkpointMgr = mgr }
@@ -854,6 +863,7 @@ func (a *App) handleCommand(cmd string) (tea.Model, tea.Cmd) {
   /clear     清空聊天
   /cost      显示成本
   /budget    设置/查看预算上限
+  /resume    列出历史会话并选择恢复
   /compact   压缩上下文历史
   /remember  记住一条项目事实(下次会话自动注入)
   /env       环境变量管理
@@ -964,6 +974,9 @@ Budget:
 
 	case "/sessions":
 		return a.handleSessionsCmd(parts)
+
+	case "/resume":
+		return a.handleResumeCmd(parts)
 
 	case "/compact":
 		return a.handleCompactCmd()
@@ -1256,6 +1269,57 @@ func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
 			marker, s.ID, s.Name, len(s.Messages), s.UpdatedAt.Format("01-02 15:04"))
 	}
 	sb.WriteString("\n使用 /sessions switch <ID> 切换会话")
+	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+	return a, nil
+}
+
+// handleResumeCmd 列出历史会话，接受 /resume <ID> 恢复指定会话。
+// 无参数时显示会话列表，有参数时恢复指定会话。
+func (a *App) handleResumeCmd(parts []string) (tea.Model, tea.Cmd) {
+	if a.sessionMgr == nil {
+		a.messages = append(a.messages, chatMessage{Role: "system", Content: "会话管理器未初始化"})
+		return a, nil
+	}
+
+	// 有参数时恢复指定会话
+	if len(parts) >= 2 {
+		sessID := parts[1]
+		sess, ok := a.sessionMgr.Get(sessID)
+		if !ok {
+			a.messages = append(a.messages, chatMessage{
+				Role: "system", Content: fmt.Sprintf("会话 %q 不存在。使用 /resume 列出所有会话。", sessID),
+			})
+			return a, nil
+		}
+		if err := a.sessionMgr.SetActive(sessID); err != nil {
+			log.Printf("activate session: %v", err)
+		}
+		a.RestoreSession(sess)
+		return a, nil
+	}
+
+	sessions := a.sessionMgr.List()
+	if len(sessions) == 0 {
+		a.messages = append(a.messages, chatMessage{
+			Role: "system", Content: "暂无历史会话。使用 --session <ID> 或 /sessions new <名称> 创建。",
+		})
+		return a, nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "历史会话 (%d):\n\n", len(sessions))
+	fmt.Fprintf(&sb, "  %-30s %-20s %8s  %s\n", "ID", "名称", "消息数", "更新时间")
+	fmt.Fprintf(&sb, "  %s\n", strings.Repeat("─", 75))
+	for _, s := range sessions {
+		marker := "  "
+		if a.activeSess != nil && a.activeSess.ID == s.ID {
+			marker = "▶ "
+		}
+		msgCount := len(s.Messages)
+		fmt.Fprintf(&sb, "%s%-30s %-20s %8d  %s\n",
+			marker, s.ID, s.Name, msgCount, s.UpdatedAt.Format("01-02 15:04"))
+	}
+	sb.WriteString("\n使用 /resume <ID> 恢复指定会话，或 /sessions switch <ID>")
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
 	return a, nil
 }

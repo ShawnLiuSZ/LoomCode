@@ -144,9 +144,19 @@ func LoadDefault() (*Config, error) {
 	}
 
 	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return Load(p)
+		if _, err := os.Stat(p); err != nil {
+			continue
 		}
+		cfg, err := Load(p)
+		if err != nil {
+			return nil, err
+		}
+		// 如果配置文件没有声明任何 Provider，视为空配置，继续查找下一个优先级。
+		// 这能避免项目根目录的占位/注释文件覆盖用户级配置或内置默认。
+		if len(cfg.Providers) == 0 {
+			continue
+		}
+		return cfg, nil
 	}
 
 	return DefaultConfig(), nil
