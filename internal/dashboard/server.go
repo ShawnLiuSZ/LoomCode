@@ -116,9 +116,12 @@ func (s *Server) Start(ctx context.Context) error {
 	fmt.Printf("Dashboard running at http://%s?token=%s\n", s.addr, s.authToken)
 	fmt.Println("注意：Dashboard 当前返回模拟数据（Mockup），仅用于 UI 原型展示。")
 
+	// 定时广播 cost/status，让 WebSocket 实时链路工作（Mockup 阶段）
+	go s.broadcastTicker(ctx)
+
 	go func() {
 		<-ctx.Done()
-		s.wsHub.Stop() // 停止 WSHub 主循环，让 goroutine 退出（N10）
+		s.wsHub.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -130,4 +133,32 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// broadcastTicker 定时通过 WebSocket 广播 cost 和 status 数据。
+// ctx 取消时停止。仅在有 WebSocket 客户端连接时才广播。
+func (s *Server) broadcastTicker(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.wsHub.ClientCount() == 0 {
+				continue
+			}
+			s.wsHub.SendJSON("cost", map[string]interface{}{
+				"total":   0.12,
+				"today":   0.03,
+				"history": []float64{0.01, 0.02, 0.03, 0.02, 0.04},
+			})
+			s.wsHub.SendJSON("status", map[string]interface{}{
+				"deepseek": "connected",
+				"mimo":     "connected",
+				"openai":   "disconnected",
+			})
+		}
+	}
 }

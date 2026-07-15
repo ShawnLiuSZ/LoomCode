@@ -10,30 +10,32 @@
     <div class="container">
         <header>
             <h1>LoomCode Dashboard</h1>
-            <div class="status-bar">
-                <span id="deepseek-status">DeepSeek: --</span>
-                <span id="mimo-status">MiMo: --</span>
-                <span id="openai-status">OpenAI: --</span>
-                <span id="cost-total">Cost: $0.00</span>
+            <div class="status-bar" role="status" aria-live="polite">
+                <span id="deepseek-status" aria-label="DeepSeek status">DeepSeek</span>
+                <span id="mimo-status" aria-label="MiMo status">MiMo</span>
+                <span id="openai-status" aria-label="OpenAI status">OpenAI</span>
+                <span id="cost-total" aria-label="Total cost">Cost: $0.00</span>
             </div>
         </header>
 
-        <main>
-            <div class="sidebar">
-                <h2>Sessions</h2>
-                <ul id="session-list"></ul>
-            </div>
+        <div id="error-container"></div>
 
-            <div class="content">
+        <main>
+            <aside class="sidebar" aria-label="Session list">
+                <h2>Sessions</h2>
+                <ul id="session-list" role="listbox" aria-label="Sessions"></ul>
+            </aside>
+
+            <section class="content" aria-label="Session details and cost chart">
                 <div id="session-details">
-                    <p>Select a session to view details</p>
+                    <p class="empty-state">Select a session to view details</p>
                 </div>
 
                 <div id="cost-chart">
                     <h3>Cost History</h3>
-                    <canvas id="chart"></canvas>
+                    <canvas id="chart" role="img" aria-label="Cost history line chart"></canvas>
                 </div>
-            </div>
+            </section>
         </main>
     </div>
 

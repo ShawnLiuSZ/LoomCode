@@ -172,28 +172,55 @@ var allCommands = []string{
 	"/goal", "/clear", "/cost", "/budget", "/env", "/model", "/skills", "/sessions", "/compact", "/queue", "/steps", "/remember", "/quit",
 }
 
-// 样式
-var (
-	userStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	assistantStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	systemStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
-	toolStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
-	suggestionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	suggestionSel    = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("4"))
-	headerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true).Padding(0, 1)
-	statusBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("0")).Background(lipgloss.Color("7")).Padding(0, 1)
-	costGreenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	costYellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	costRedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	activityStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Italic(true)
-	contextWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+// RoleColor 角色→ANSI 颜色索引常量表，统一管理语义色，避免魔法数字扩散。
+const (
+	colorUser       = "6" // cyan
+	colorAssistant  = "3" // yellow
+	colorSystem     = "8" // bright black
+	colorTool       = "5" // magenta
+	colorDanger     = "1" // red — error/cost-red/diff-del/context-warn 共用
+	colorSuccess    = "2" // green
+	colorInfo       = "4" // blue
+	colorHighlight  = "6" // cyan (diff header)
+	colorSuggestion = "8" // bright black
+	colorMuted      = "7" // white
+	colorBg         = "7" // cursor background
+	colorFg         = "0" // black (cursor text)
+	colorLogo       = "75" // light blue (version text)
+	colorLogoAccent = "39" // deep sky blue (#00BFFF, welcome logo)
+)
 
-	approvalTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Bold(true)
-	diffAddStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	diffDelStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	diffHeaderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	approvalHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Italic(true)
+// 样式注册表（集中管理所有命名样式）
+var (
+	userStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colorUser)).Bold(true)
+	assistantStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant))
+	systemStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSystem)).Italic(true)
+	toolStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colorTool))
+	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Bold(true)
+	suggestionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuggestion))
+	suggestionSel    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Background(lipgloss.Color(colorInfo))
+	headerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Bold(true).Padding(0, 1)
+	statusBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Background(lipgloss.Color(colorMuted)).Padding(0, 1)
+	costGreenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess))
+	costYellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant))
+	costRedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger))
+	activityStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorInfo)).Italic(true)
+	contextWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Bold(true)
+
+	approvalTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant)).Bold(true)
+	diffAddStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess))
+	diffDelStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger))
+	diffHeaderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorHighlight)).Bold(true)
+	approvalHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant)).Italic(true)
+
+	// renderWelcome 专用（原散落在函数内，现收入注册表）
+	logoStyle  = lipgloss.NewStyle().Bold(true)
+	verStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorLogo)).Bold(true)
+	tipStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted))
+
+	// textarea 光标样式（原散落在 NewApp 内，现收入注册表）
+	cursorBgStyle = lipgloss.NewStyle().Background(lipgloss.Color(colorBg))
+	cursorFgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg))
 )
 
 // NewApp 创建 TUI 应用
@@ -227,9 +254,9 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.FocusedStyle.Base = lipgloss.NewStyle()
 	ta.BlurredStyle.Base = lipgloss.NewStyle()
-	// 修复光标渲染乱码：用 Background 替代 Reverse(true)
-	ta.Cursor.Style = lipgloss.NewStyle().Background(lipgloss.Color("7"))
-	ta.Cursor.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("0"))
+	// 修复光标渲染乱码：用 Background 替代 Reverse(true) — 使用注册表样式
+	ta.Cursor.Style = cursorBgStyle
+	ta.Cursor.TextStyle = cursorFgStyle
 
 	// 创建 glamour renderer（1.3：背景色在 Init 中检测，此处先默认深色，WindowSizeMsg 时按实际更新）
 	renderer, _ := glamour.NewTermRenderer(
@@ -1455,11 +1482,8 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 func (a *App) renderWelcome() string {
 	var sb strings.Builder
 
-	// 单色 Logo（Loom = 织机）
-	loomcodeStyle := lipgloss.NewStyle().Bold(true)
-	blue := lipgloss.Color("39") // #00BFFF
-	verStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("75")).Bold(true)
-	tipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
+	// 单色 Logo（Loom = 织机）— 使用注册表样式
+	blue := lipgloss.Color(colorLogoAccent)
 
 	logo := []struct {
 		text  string
@@ -1489,7 +1513,7 @@ func (a *App) renderWelcome() string {
 	for i := 0; i < maxLines; i++ {
 		left := ""
 		if i < len(logo) {
-			left = loomcodeStyle.Foreground(logo[i].color).Render(logo[i].text)
+			left = logoStyle.Foreground(logo[i].color).Render(logo[i].text)
 		}
 		right := ""
 		if i == 0 {
