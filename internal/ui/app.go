@@ -223,8 +223,8 @@ const (
 	colorMuted      = "7"  // white
 	colorBg         = "7"  // cursor background
 	colorFg         = "0"  // black (cursor text)
-	colorLogo       = "75" // light blue (version text)
-	colorLogoAccent = "39" // deep sky blue (#00BFFF, welcome logo)
+	colorLogo       = "#3B82F6" // Blue-500 (version text)
+	colorLogoAccent = "#7C3AED" // Violet-600 (welcome logo)
 )
 
 // 样式注册表（集中管理所有命名样式）
