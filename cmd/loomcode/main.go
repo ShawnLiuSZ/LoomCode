@@ -135,12 +135,12 @@ func initRuntime(chatMode bool) (*runtime, error) {
 
 	provCfg, err := selectProvider(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("Provider 选择失败: %w", err)
+		return nil, fmt.Errorf("provider 选择失败: %w", err)
 	}
 
 	p, err := createProvider(provCfg)
 	if err != nil {
-		return nil, fmt.Errorf("Provider 创建失败: %w", err)
+		return nil, fmt.Errorf("provider 创建失败: %w", err)
 	}
 
 	tools := tool.NewRegistry()

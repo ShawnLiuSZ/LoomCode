@@ -636,11 +636,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		// 鼠标滚轮控制 viewport 滚动
-		switch msg.Type {
-		case tea.MouseWheelUp:
-			a.viewport.LineUp(3)
-		case tea.MouseWheelDown:
-			a.viewport.LineDown(3)
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			a.viewport.ScrollUp(3)
+		case tea.MouseButtonWheelDown:
+			a.viewport.ScrollDown(3)
 		}
 		return a, nil
 
@@ -1860,8 +1860,8 @@ func (a *App) renderResumePicker(sb *strings.Builder, visibleLines int) {
 	sb.WriteString("\n")
 	sb.WriteString(systemStyle.Render("选择历史会话 (↑↓ 移动, Enter 确认, Esc 取消):"))
 	sb.WriteString("\n\n")
-	sb.WriteString(fmt.Sprintf("  %-30s %-20s %8s  %s\n", "ID", "名称", "消息数", "更新时间"))
-	sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("─", 75)))
+	fmt.Fprintf(sb, "  %-30s %-20s %8s  %s\n", "ID", "名称", "消息数", "更新时间")
+	fmt.Fprintf(sb, "  %s\n", strings.Repeat("─", 75))
 
 	for i := startIdx; i < endIdx; i++ {
 		s := a.resumeSessions[i]

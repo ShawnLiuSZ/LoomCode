@@ -179,5 +179,3 @@ var _byteToUnicode = byteToUnicodeMap()
 // byteToUnicode maps a byte to its ByteLevel Unicode representation.
 func byteToUnicode(b byte) rune { return _byteToUnicode[b] }
 
-// cleanSpace collapses repeated spaces if needed.
-func cleanSpace(s string) string { return strings.Join(strings.Fields(s), " ") }
