@@ -103,9 +103,12 @@ func (h *WSHub) run() {
 	}
 }
 
-// Broadcast 广播消息到所有客户端
+// Broadcast 广播消息到所有客户端。若 WSHub 已停止，直接丢弃消息避免死锁。
 func (h *WSHub) Broadcast(message []byte) {
-	h.broadcast <- message
+	select {
+	case h.broadcast <- message:
+	case <-h.done:
+	}
 }
 
 // ClientCount 返回当前连接数
@@ -155,13 +158,20 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			send: make(chan []byte, 256),
 		}
 
-		hub.register <- client
+		select {
+		case hub.register <- client:
+		case <-hub.done:
+			return
+		}
 
 		// 读循环（仅用于检测断开）。
 		// 每次收到消息后刷新读 deadline，避免健康连接被一次性 60s deadline 误杀（R2）。
 		go func() {
 			defer func() {
-				hub.unregister <- client
+				select {
+				case hub.unregister <- client:
+				case <-hub.done:
+				}
 			}()
 			for {
 				_ = ws.SetReadDeadline(time.Now().Add(120 * time.Second))

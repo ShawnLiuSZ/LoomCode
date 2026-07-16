@@ -113,6 +113,8 @@ func (g *Gate) PendingOps() []*Operation {
 
 // ClearPending 清空待审批列表
 func (g *Gate) ClearPending() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.pendingOps = nil
 }
 

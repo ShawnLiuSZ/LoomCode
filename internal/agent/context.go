@@ -247,5 +247,8 @@ func (a *Agent) summarize(ctx context.Context, msgs []provider.Message) (string,
 	if err != nil {
 		return "", provider.Usage{}, err
 	}
+	if resp == nil {
+		return "[Earlier conversation summary]\n(no response)", provider.Usage{}, nil
+	}
 	return "[Earlier conversation summary]\n" + resp.Content, resp.Usage, nil
 }

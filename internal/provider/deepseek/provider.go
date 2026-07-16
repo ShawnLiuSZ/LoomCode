@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -20,27 +21,35 @@ import (
 const kind = "deepseek"
 
 var (
-	// tokenizerOnce lazy-loads the DeepSeek offline tokenizer.
-	tokenizerOnce sync.Once
-	tokenizerInst *deepseek.Tokenizer
-	tokenizerErr  error
+	// tokenizerMu 与 tokenizerLoaded 保护懒加载的 DeepSeek tokenizer。
+	tokenizerMu     sync.Mutex
+	tokenizerLoaded atomic.Bool
+	tokenizerInst   *deepseek.Tokenizer
+	tokenizerErr    error
 )
 
 // loadTokenizer returns the shared offline DeepSeek tokenizer.
 // By default it uses the tokenizer.json embedded at build time.
 // Set LOOMCODE_TOKENIZER_PATH to override with an external tokenizer.json.
 func loadTokenizer() (*deepseek.Tokenizer, error) {
-	tokenizerOnce.Do(func() {
-		if path := os.Getenv("LOOMCODE_TOKENIZER_PATH"); path != "" {
-			tokenizerInst, tokenizerErr = deepseek.NewTokenizerFromFile(path)
-			return
-		}
-		tokenizerInst, tokenizerErr = deepseek.NewDefaultTokenizer()
-	})
-	if tokenizerErr != nil {
-		// 失败时重置 sync.Once，允许同一进程内（如测试）下次重试或加载不同配置。
-		tokenizerOnce = sync.Once{}
+	if tokenizerLoaded.Load() {
+		return tokenizerInst, tokenizerErr
 	}
+
+	tokenizerMu.Lock()
+	defer tokenizerMu.Unlock()
+
+	// double-check：等待锁期间其他 goroutine 已完成加载。
+	if tokenizerLoaded.Load() {
+		return tokenizerInst, tokenizerErr
+	}
+
+	if path := os.Getenv("LOOMCODE_TOKENIZER_PATH"); path != "" {
+		tokenizerInst, tokenizerErr = deepseek.NewTokenizerFromFile(path)
+	} else {
+		tokenizerInst, tokenizerErr = deepseek.NewDefaultTokenizer()
+	}
+	tokenizerLoaded.Store(true)
 	return tokenizerInst, tokenizerErr
 }
 

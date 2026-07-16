@@ -20,6 +20,7 @@ import (
 type SSEClient struct {
 	baseURL      string
 	httpClient   *http.Client
+	sseClient    *http.Client
 	eventCh      chan SSEEvent
 	mu           sync.Mutex
 	nextID       atomic.Int64
@@ -45,10 +46,18 @@ type SSEEvent struct {
 // NewSSEClient 创建 SSE 客户端
 func NewSSEClient(baseURL string) *SSEClient {
 	return &SSEClient{
-		baseURL:    strings.TrimSuffix(baseURL, "/"),
+		baseURL: strings.TrimSuffix(baseURL, "/"),
+		// httpClient 用于 POST 请求，保持 30 秒总超时。
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-		eventCh:    make(chan SSEEvent, 100),
-		notifyCh:   make(chan struct{}, 1),
+		// sseClient 用于 SSE 长连接流，不设置总 Timeout，避免 30 秒切断连接。
+		// 仅对响应头设置超时，让心跳逻辑管理流生命周期。
+		sseClient: &http.Client{
+			Transport: &http.Transport{
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		},
+		eventCh:  make(chan SSEEvent, 100),
+		notifyCh: make(chan struct{}, 1),
 	}
 }
 
@@ -108,14 +117,14 @@ func (c *SSEClient) discoverEndpoint(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.sseClient.Do(req)
 	if err != nil {
 		// 如果直接访问 /sse 失败，尝试根路径
 		req, err = http.NewRequestWithContext(ctx, "GET", c.baseURL, nil)
 		if err != nil {
 			return "", err
 		}
-		resp, err = c.httpClient.Do(req)
+		resp, err = c.sseClient.Do(req)
 		if err != nil {
 			return "", err
 		}
@@ -184,14 +193,16 @@ func (c *SSEClient) listenSSE(ctx context.Context, endpoint string) {
 			req.Header.Set("Mcp-Session-Id", c.sessionID)
 		}
 
-		resp, err := c.httpClient.Do(req)
+		resp, err := c.sseClient.Do(req)
 		if err != nil {
 			delay, attempts = c.reconnectWithBackoff(ctx, delay, initialDelay, maxDelay, multiplier, jitterPct, maxAttempts, &attempts)
 			continue
 		}
 
 		if sid := resp.Header.Get("Mcp-Session-Id"); sid != "" {
+			c.mu.Lock()
 			c.sessionID = sid
+			c.mu.Unlock()
 		}
 
 		attempts = 0
@@ -409,10 +420,14 @@ func (c *SSEClient) call(ctx context.Context, method string, params any) (*Respo
 	// 对于 POST 请求，响应可能直接返回
 	if resp.StatusCode == http.StatusOK {
 		var response Response
-		body, _ := io.ReadAll(resp.Body)
-		if err := json.Unmarshal(body, &response); err == nil {
-			return &response, nil
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read response body: %w", err)
 		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("invalid JSON response from MCP server: %w (body: %s)", err, string(body))
+		}
+		return &response, nil
 	}
 
 	// 否则从 SSE 事件中获取响应（不持锁，允许并发等待）

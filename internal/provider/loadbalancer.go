@@ -316,11 +316,13 @@ func (lb *LoadBalancer) GetMetrics(providerName string) *ProviderMetrics {
 	return lb.metrics[providerName]
 }
 
-// GetProviders 获取所有 Provider
+// GetProviders 获取所有 Provider 的副本，避免暴露内部 slice 底层数组引用。
 func (lb *LoadBalancer) GetProviders() []Provider {
 	lb.mu.RLock()
 	defer lb.mu.RUnlock()
-	return lb.providers
+	cp := make([]Provider, len(lb.providers))
+	copy(cp, lb.providers)
+	return cp
 }
 
 // AddProvider 添加 Provider
