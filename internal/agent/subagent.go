@@ -200,6 +200,12 @@ func (m *SubAgentManager) Cleanup() {
 		sa.mu.Unlock()
 
 		if done && finishedAt.Before(cutoff) {
+			// D6 修复：删除 SubAgent 前必须取消 MessageBus 订阅，
+			// 否则 subscribers map 残留 channel，Send 遍历失效订阅，
+			// 导致内存持续增长。
+			if m.bus != nil {
+				m.bus.Unsubscribe(id)
+			}
 			delete(m.agents, id)
 		}
 	}
@@ -227,6 +233,10 @@ func (m *SubAgentManager) Cleanup() {
 			excess = len(completed)
 		}
 		for i := 0; i < excess; i++ {
+			// D6 修复：maxAgents 超限淘汰路径同样需取消订阅。
+			if m.bus != nil {
+				m.bus.Unsubscribe(completed[i].id)
+			}
 			delete(m.agents, completed[i].id)
 		}
 	}
@@ -361,6 +371,15 @@ func (sa *SubAgent) Wait() {
 
 // WaitTimeout 等待子 Agent 完成（带超时）
 func (sa *SubAgent) WaitTimeout(timeout time.Duration) error {
+	// D4 修复：与 Wait() 保持一致地检查 sa.started。
+	// 未启动的 SubAgent done 永不关闭，直接等待会走完整个超时
+	// 并返回虚假的 timeout 错误。
+	sa.mu.Lock()
+	started := sa.started
+	sa.mu.Unlock()
+	if !started {
+		return nil
+	}
 	select {
 	case <-sa.done:
 		return nil

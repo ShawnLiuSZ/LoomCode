@@ -78,14 +78,19 @@ func (c *RetryableHTTPClient) Do(req *http.Request) (*http.Response, error) {
 
 	// 若请求体未提供 GetBody（如 bytes.NewReader），一次性读入内存并记录，
 	// 以便重试时重新发送 body。否则重试会发送空 body，导致上游返回 400。
+	// D5 修复：无论 ReadAll 是否成功都必须关闭原 body，避免连接泄漏。
+	// ReadAll 失败时 body 已部分消费且无法重建，直接返回错误，
+	// 防止后续重试发送截断/空 body 触发上游 400。
 	if req.Body != nil && req.GetBody == nil {
-		if buf, rerr := io.ReadAll(req.Body); rerr == nil {
-			_ = req.Body.Close()
-			req.Body = io.NopCloser(bytes.NewReader(buf))
-			req.ContentLength = int64(len(buf))
-			req.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(buf)), nil
-			}
+		buf, rerr := io.ReadAll(req.Body)
+		_ = req.Body.Close()
+		if rerr != nil {
+			return nil, fmt.Errorf("read request body: %w", rerr)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(buf))
+		req.ContentLength = int64(len(buf))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(buf)), nil
 		}
 	}
 

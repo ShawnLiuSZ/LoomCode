@@ -334,9 +334,16 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan StreamChunk,
 		defer close(textCh)
 		defer close(errCh)
 		// H19 修复：防止流式 goroutine 因 panic 泄漏通道/goroutine，确保 defer close 一定执行。
+		// D7 修复：Go defer 按 LIFO 执行，panic 恢复先于 close(errCh)。
+		// 若 errCh（容量 1）已有缓冲值，阻塞发送 errCh<-... 会导致 close 永不执行，
+		// close(textCh) 与消费方 range 永久挂起——死锁。
+		// 改为非阻塞发送：errCh 满时丢弃 panic 错误，优先保证通道关闭。
 		defer func() {
 			if r := recover(); r != nil {
-				errCh <- fmt.Errorf("stream panic: %v", r)
+				select {
+				case errCh <- fmt.Errorf("stream panic: %v", r):
+				default:
+				}
 			}
 		}()
 

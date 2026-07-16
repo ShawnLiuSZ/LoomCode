@@ -268,6 +268,11 @@ func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan StreamC
 	for _, g := range a.guards {
 		ag.AddGuard(g)
 	}
+	// D1 修复：RunStream 需与 runBuild 一致地传播 Goal 停止条件，
+	// 否则用户通过 /goal 设置的停止条件在 TUI 流式主模式下被静默忽略。
+	if a.goal.IsEnabled() {
+		ag.SetGoal(a.goal.GetGoal())
+	}
 	ag.SetHistory(a.conversation)
 
 	textCh, errCh := ag.RunStream(ctx, task)
@@ -279,16 +284,32 @@ func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan StreamC
 	go func() {
 		defer close(outText)
 		defer close(outErr)
+		// D2 修复：转发 goroutine 必须响应 ctx 取消。
+		// 若消费方停止读取（UI 崩溃/取消），裸 outText<-t 会永久阻塞，
+		// close(outText) 永不执行，消费方 range 也永久挂起——死锁。
+		// errCh 接收与 outErr 发送同样存在阻塞风险，一并加 select 保护。
 		for t := range textCh {
-			outText <- t
+			select {
+			case outText <- t:
+			case <-ctx.Done():
+				return
+			}
 		}
 		var rerr error
-		if e, ok := <-errCh; ok {
-			rerr = e
+		select {
+		case e, ok := <-errCh:
+			if ok {
+				rerr = e
+			}
+		case <-ctx.Done():
+			return
 		}
 		a.conversation = ag.ConversationMessages()
 		if rerr != nil {
-			outErr <- rerr
+			select {
+			case outErr <- rerr:
+			case <-ctx.Done():
+			}
 		}
 	}()
 	return outText, outErr

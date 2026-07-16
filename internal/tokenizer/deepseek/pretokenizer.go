@@ -99,10 +99,12 @@ func (s *splitter) apply(pieces []string) []string {
 		last := 0
 		for _, m := range matches {
 			if s.invert {
+				// D3 修复：invert=true 时应只保留匹配之间的间隔，跳过匹配部分本身。
+				// 原实现两分支完全相同，导致 invert 标志无效，分词结果不准确，
+				// 影响 token 计数与上下文窗口管理。
 				if m[0] > last {
 					out = append(out, p[last:m[0]])
 				}
-				out = append(out, p[m[0]:m[1]])
 			} else {
 				if m[0] > last {
 					out = append(out, p[last:m[0]])
