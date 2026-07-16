@@ -16,6 +16,7 @@ type Config struct {
 	DefaultProvider string             `toml:"default_provider" json:"default_provider,omitempty"`
 	Providers       []ProviderConfig   `toml:"providers" json:"providers,omitempty"`
 	Plugins         []PluginConfig     `toml:"plugins" json:"plugins,omitempty"`
+	Env             map[string]string  `toml:"env" json:"env,omitempty"` // API keys: project > global > env vars
 	Permissions     PermissionConfig   `toml:"permissions" json:"permissions,omitempty"`
 	Search          SearchConfig       `toml:"search" json:"search,omitempty"`
 	Experimental    ExperimentalConfig `toml:"experimental" json:"experimental,omitempty"`
@@ -130,7 +131,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("unsupported config format: %s", filepath.Ext(path))
 	}
 
-	if err := cfg.resolveAPIKeys(); err != nil {
+	if err := cfg.resolveAPIKeys(cfg.Env, nil); err != nil {
 		return nil, err
 	}
 
@@ -203,10 +204,8 @@ func LoadDefault() (*Config, error) {
 }
 
 // resolveAPIKeys 检查各 Provider 的 API Key 是否已配置。
-// 若已直接填写 api_key，则跳过环境变量检查；否则检查 api_key_env 对应变量。
-// 缺失时打印警告但不阻止加载——模型仍可在 /model 中列出和切换，
-// 仅在实际发起 API 调用时才会因鉴权失败而报错。
-func (c *Config) resolveAPIKeys() error {
+// 优先级：配置文件 api_key > 项目 env > 全局 env > 系统环境变量
+func (c *Config) resolveAPIKeys(projectEnv, globalEnv map[string]string) error {
 	for i := range c.Providers {
 		p := &c.Providers[i]
 		if p.APIKey != "" {
@@ -215,9 +214,27 @@ func (c *Config) resolveAPIKeys() error {
 		if p.APIKeyEnv == "" {
 			continue
 		}
-		if os.Getenv(p.APIKeyEnv) == "" {
-			fmt.Fprintf(os.Stderr, "Warning: provider %q 环境变量 %q 未设置，模型可浏览但无法调用\n", p.Name, p.APIKeyEnv)
+		keyName := p.APIKeyEnv
+
+		// 1. 项目级 env 配置
+		if val, ok := projectEnv[keyName]; ok && val != "" {
+			p.APIKey = val
+			continue
 		}
+
+		// 2. 全局 env 配置
+		if val, ok := globalEnv[keyName]; ok && val != "" {
+			p.APIKey = val
+			continue
+		}
+
+		// 3. 系统环境变量
+		if val := os.Getenv(keyName); val != "" {
+			p.APIKey = val
+			continue
+		}
+
+		fmt.Fprintf(os.Stderr, "Warning: provider %q 环境变量 %q 未设置，模型可浏览但无法调用\n", p.Name, keyName)
 	}
 	return nil
 }
