@@ -98,6 +98,7 @@ type runtime struct {
 	prov    provider.Provider
 	tools   *tool.Registry
 	perm    *control.Permission
+	trust   *control.WorkspaceTrust
 	plugins *mcp.PluginManager
 	cpMgr   *tool.CheckpointManager
 }
@@ -109,6 +110,28 @@ func initRuntime(chatMode bool) (*runtime, error) {
 	}
 
 	tool.SetEnvProvider(&envProvider{cfg: cfg})
+
+	cwd, err := os.Getwd()
+	if err != nil || cwd == "" {
+		cwd = "."
+	}
+
+	// 加载工作区信任配置；首次启动时询问用户是否信任当前工作区。
+	home, _ := os.UserHomeDir()
+	trustPath := filepath.Join(home, ".loomcode", "trust.json")
+	trust := control.NewWorkspaceTrust()
+	if err := trust.Load(trustPath); err != nil {
+		return nil, fmt.Errorf("加载信任配置失败: %w", err)
+	}
+	if !trust.IsTrusted(cwd) && trust.Decision(cwd) == "" {
+		decision, err := control.PromptTrust(cwd)
+		if err != nil {
+			return nil, fmt.Errorf("信任确认失败: %w", err)
+		}
+		if err := trust.SetDecision(cwd, decision); err != nil {
+			return nil, fmt.Errorf("保存信任决策失败: %w", err)
+		}
+	}
 
 	provCfg, err := selectProvider(cfg)
 	if err != nil {
@@ -128,7 +151,7 @@ func initRuntime(chatMode bool) (*runtime, error) {
 	if chatMode {
 		cpMgr = tool.NewCheckpointManager("")
 	}
-	configureToolPermissions(tools, perm, cpMgr)
+	configureToolPermissions(tools, perm, cpMgr, trust)
 
 	pm := connectPlugins(context.Background(), cfg.Plugins, tools)
 
@@ -138,6 +161,7 @@ func initRuntime(chatMode bool) (*runtime, error) {
 		prov:    p,
 		tools:   tools,
 		perm:    perm,
+		trust:   trust,
 		plugins: pm,
 		cpMgr:   cpMgr,
 	}, nil
@@ -278,10 +302,40 @@ func connectPlugins(ctx context.Context, plugins []config.PluginConfig, tools *t
 	return pm
 }
 
+// setToolTrust 将 TUI App 作为工作区外文件访问信任检查器注入到文件/Git 工具。
+func setToolTrust(tools *tool.Registry, trust tool.OutsideTrustChecker) {
+	if t, ok := tools.Get("read_file"); ok {
+		if ft, ok := t.(*tool.ReadFileTool); ok {
+			ft.SetTrust(trust)
+		}
+	}
+	if t, ok := tools.Get("write_file"); ok {
+		if ft, ok := t.(*tool.WriteFileTool); ok {
+			ft.SetTrust(trust)
+		}
+	}
+	if t, ok := tools.Get("edit_file"); ok {
+		if ft, ok := t.(*tool.EditFileTool); ok {
+			ft.SetTrust(trust)
+		}
+	}
+	if t, ok := tools.Get("git_diff"); ok {
+		if gt, ok := t.(*tool.GitDiffTool); ok {
+			gt.SetTrust(trust)
+		}
+	}
+	if t, ok := tools.Get("git_log"); ok {
+		if gt, ok := t.(*tool.GitLogTool); ok {
+			gt.SetTrust(trust)
+		}
+	}
+}
+
 // configureToolPermissions 给文件工具与 bash 接入权限护栏（C2），
 // 并按"工作区内放行"模型配置 Auto 模式的默认白名单（H6）。
 // cpMgr 非空时注入到写文件/编辑文件工具，启用编辑快照安全网。
-func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cpMgr *tool.CheckpointManager) {
+// trust 用于工作区外文件访问的临时/永久授权提示。
+func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cpMgr *tool.CheckpointManager, trust *control.WorkspaceTrust) {
 	cwd, err := os.Getwd()
 	if err != nil || cwd == "" {
 		cwd = "."
@@ -304,12 +358,14 @@ func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cp
 		if ft, ok := t.(*tool.ReadFileTool); ok {
 			ft.SetRoot(cwd)
 			ft.SetPermissionChecker(perm)
+			ft.SetTrust(trust)
 		}
 	}
 	if t, ok := tools.Get("write_file"); ok {
 		if ft, ok := t.(*tool.WriteFileTool); ok {
 			ft.SetRoot(cwd)
 			ft.SetPermissionChecker(perm)
+			ft.SetTrust(trust)
 			ft.SetDiagnoser(tool.GoDiagnoser{})
 			if cpMgr != nil {
 				ft.SetCheckpointManager(cpMgr)
@@ -320,10 +376,23 @@ func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cp
 		if ft, ok := t.(*tool.EditFileTool); ok {
 			ft.SetRoot(cwd)
 			ft.SetPermissionChecker(perm)
+			ft.SetTrust(trust)
 			ft.SetDiagnoser(tool.GoDiagnoser{})
 			if cpMgr != nil {
 				ft.SetCheckpointManager(cpMgr)
 			}
+		}
+	}
+	if t, ok := tools.Get("git_diff"); ok {
+		if gt, ok := t.(*tool.GitDiffTool); ok {
+			gt.SetRoot(cwd)
+			gt.SetTrust(trust)
+		}
+	}
+	if t, ok := tools.Get("git_log"); ok {
+		if gt, ok := t.(*tool.GitLogTool); ok {
+			gt.SetRoot(cwd)
+			gt.SetTrust(trust)
 		}
 	}
 }
@@ -461,6 +530,10 @@ func chatCommand() {
 	app.SetProviders(allProviders)
 	app.AddApprovalGuard(r.perm)
 	app.SetCheckpointManager(r.cpMgr)
+	app.SetTrust(r.trust)
+
+	// TUI 模式下使用 App 的 TUI 提示替代 stdin 提示。
+	setToolTrust(r.tools, app)
 
 	hm := tool.NewHookManager()
 	registerAutoFormatHook(hm)
@@ -486,9 +559,8 @@ func chatCommand() {
 		}
 	}
 
-	// 不启用 WithMouseCellMotion：它会在终端启用鼠标捕获模式，
-	// 导致鼠标无法选中/复制文本。用户可通过 PgUp/PgDn/方向键 滚动。
-	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY())
+	// 启用 WithMouseCellMotion：支持鼠标滚轮滚动 viewport，同时保留 Shift+拖动选中文本。
+	program := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInputTTY(), tea.WithMouseCellMotion())
 	app.SetProgram(program)
 
 	// 1.13 修复：捕获 SIGTERM/SIGHUP，终端关闭或 kill 时通知 TUI 保存退出，

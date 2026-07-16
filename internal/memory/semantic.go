@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -415,15 +416,22 @@ func (idx *SemanticIndex) SearchWithFilter(ctx context.Context, query string, to
 	return results, nil
 }
 
-// Highlight 高亮匹配的文本
+// Highlight 高亮匹配的文本。
+// 使用词边界正则，避免子串误匹配（如 "read" 不会高亮 "read_file" 中的 "read"）。
 func Highlight(text, query string) string {
 	terms := strings.Fields(query)
 	result := text
 
 	for _, term := range terms {
-		upper := strings.ToUpper(term)
-		result = strings.ReplaceAll(result, term, "**"+term+"**")
-		result = strings.ReplaceAll(result, upper, "**"+upper+"**")
+		if term == "" {
+			continue
+		}
+		escaped := regexp.QuoteMeta(term)
+		// 匹配原始大小写及全大写形式。
+		re := regexp.MustCompile(`(?i)\b` + escaped + `\b`)
+		result = re.ReplaceAllStringFunc(result, func(match string) string {
+			return "**" + match + "**"
+		})
 	}
 
 	return result

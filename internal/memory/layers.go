@@ -3,8 +3,12 @@ package memory
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+// historyCounter 保证高频保存时 ID 唯一。
+var historyCounter int64
 
 // Manager 四层记忆管理器
 type Manager struct {
@@ -74,7 +78,8 @@ func (m *Manager) GetGlobalPreference(key string) (string, error) {
 // SaveHistory 保存对话历史
 func (m *Manager) SaveHistory(role, content string) error {
 	now := time.Now()
-	id := fmt.Sprintf("history_%d", now.UnixNano())
+	n := atomic.AddInt64(&historyCounter, 1)
+	id := fmt.Sprintf("history_%d_%d", now.UnixNano(), n)
 	return m.store.Save(&Entry{
 		ID:      id,
 		Layer:   LayerHistory,

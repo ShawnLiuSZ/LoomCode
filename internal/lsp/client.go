@@ -182,7 +182,10 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 	}
 
 	if params != nil {
-		data, _ := json.Marshal(params)
+		data, err := json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("marshal params: %w", err)
+		}
 		req.Params = data
 	}
 
@@ -194,7 +197,12 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 
 	// 写入请求（需要锁保护 stdin）
 	c.mu.Lock()
-	reqData, _ := json.Marshal(req)
+	reqData, err := json.Marshal(req)
+	if err != nil {
+		c.mu.Unlock()
+		c.cancelPending(id)
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	header := fmt.Sprintf("Content-Length: %d\r\n\r\n", len(reqData))
 	if _, err := c.stdin.Write([]byte(header)); err != nil {
 		c.mu.Unlock()

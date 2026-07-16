@@ -12,7 +12,8 @@ import (
 
 // resolveWithinRoot 校验 path 落在 workspace root 之内并返回清理后的绝对路径。
 // root 为空表示未配置工作区限制（向后兼容）。会解析符号链接以阻止逃逸。
-func resolveWithinRoot(root, path string) (string, error) {
+// trust 非空时，若路径超出工作区会询问用户是否授权临时/永久访问；trust 为空则直接拒绝。
+func resolveWithinRoot(root, path string, trust OutsideTrustChecker) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("path is required")
 	}
@@ -32,6 +33,16 @@ func resolveWithinRoot(root, path string) (string, error) {
 		return "", fmt.Errorf("resolve root: %w", err)
 	}
 	if !within(rootAbs, abs) {
+		if trust != nil {
+			if !trust.IsOutsideAccessAllowed(abs) {
+				if err := trust.PromptAndAllow(abs); err != nil {
+					return "", err
+				}
+			}
+			if trust.IsOutsideAccessAllowed(abs) {
+				return abs, nil
+			}
+		}
 		return "", fmt.Errorf("path %q escapes workspace root", path)
 	}
 
@@ -45,10 +56,12 @@ func resolveWithinRoot(root, path string) (string, error) {
 	if _, statErr := os.Lstat(abs); statErr != nil {
 		target = filepath.Dir(abs)
 	}
-	if resolved, err := filepath.EvalSymlinks(target); err == nil {
-		if !within(rootCanonical, resolved) {
-			return "", fmt.Errorf("path %q escapes workspace root via symlink", path)
-		}
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve path %q: %w", path, err)
+	}
+	if !within(rootCanonical, resolved) {
+		return "", fmt.Errorf("path %q escapes workspace root via symlink", path)
 	}
 
 	return abs, nil
@@ -67,6 +80,7 @@ func within(rootAbs, abs string) bool {
 type ReadFileTool struct {
 	root       string
 	permission PermissionChecker
+	trust      OutsideTrustChecker
 }
 
 // SetRoot 设置 workspace 根目录（路径限制）
@@ -74,6 +88,9 @@ func (t *ReadFileTool) SetRoot(root string) { t.root = root }
 
 // SetPermissionChecker 设置权限检查器
 func (t *ReadFileTool) SetPermissionChecker(checker PermissionChecker) { t.permission = checker }
+
+// SetTrust 设置工作区外文件访问信任检查器
+func (t *ReadFileTool) SetTrust(trust OutsideTrustChecker) { t.trust = trust }
 
 func (t *ReadFileTool) Name() string        { return "read_file" }
 func (t *ReadFileTool) Description() string { return "Read the contents of a file" }
@@ -91,7 +108,7 @@ func (t *ReadFileTool) Schema() Schema {
 
 func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) (*Result, error) {
 	path, _ := args["path"].(string)
-	abs, err := resolveWithinRoot(t.root, path)
+	abs, err := resolveWithinRoot(t.root, path, t.trust)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +146,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 type WriteFileTool struct {
 	root          string
 	permission    PermissionChecker
+	trust         OutsideTrustChecker
 	diagnoser     Diagnoser
 	checkpointMgr *CheckpointManager
 }
@@ -138,6 +156,9 @@ func (t *WriteFileTool) SetRoot(root string) { t.root = root }
 
 // SetPermissionChecker 设置权限检查器
 func (t *WriteFileTool) SetPermissionChecker(checker PermissionChecker) { t.permission = checker }
+
+// SetTrust 设置工作区外文件访问信任检查器
+func (t *WriteFileTool) SetTrust(trust OutsideTrustChecker) { t.trust = trust }
 
 // SetDiagnoser 设置写入后诊断器（可选，nil 时不诊断）
 func (t *WriteFileTool) SetDiagnoser(d Diagnoser) { t.diagnoser = d }
@@ -168,7 +189,7 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) (*Resu
 	path, _ := args["path"].(string)
 	content, _ := args["content"].(string)
 
-	abs, err := resolveWithinRoot(t.root, path)
+	abs, err := resolveWithinRoot(t.root, path, t.trust)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +218,7 @@ func (t *WriteFileTool) Execute(ctx context.Context, args map[string]any) (*Resu
 type EditFileTool struct {
 	root          string
 	permission    PermissionChecker
+	trust         OutsideTrustChecker
 	diagnoser     Diagnoser
 	checkpointMgr *CheckpointManager
 }
@@ -206,6 +228,9 @@ func (t *EditFileTool) SetRoot(root string) { t.root = root }
 
 // SetPermissionChecker 设置权限检查器
 func (t *EditFileTool) SetPermissionChecker(checker PermissionChecker) { t.permission = checker }
+
+// SetTrust 设置工作区外文件访问信任检查器
+func (t *EditFileTool) SetTrust(trust OutsideTrustChecker) { t.trust = trust }
 
 // SetDiagnoser 设置编辑后诊断器（可选，nil 时不诊断）
 func (t *EditFileTool) SetDiagnoser(d Diagnoser) { t.diagnoser = d }
@@ -242,7 +267,7 @@ func (t *EditFileTool) Execute(ctx context.Context, args map[string]any) (*Resul
 	if oldText == "" {
 		return nil, fmt.Errorf("old_text is required")
 	}
-	abs, err := resolveWithinRoot(t.root, path)
+	abs, err := resolveWithinRoot(t.root, path, t.trust)
 	if err != nil {
 		return nil, err
 	}

@@ -251,9 +251,13 @@ func parseChatResponse(data []byte) (*provider.ChatResponse, error) {
 				args = nil
 			}
 			resp.ToolCalls = append(resp.ToolCalls, provider.ToolCall{
-				ID:       tc.ID,
-				Function: provider.ToolCallFunc{Name: tc.Function.Name},
-				Args:     args,
+				ID:   tc.ID,
+				Type: "function",
+				Function: provider.ToolCallFunc{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+				Args: args,
 			})
 		}
 	}

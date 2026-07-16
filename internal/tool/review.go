@@ -256,6 +256,9 @@ func (t *ReviewEditTool) Execute(ctx context.Context, args map[string]any) (*Res
 	}
 
 	// 否则直接应用
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("edit cancelled: %w", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read file %q: %w", path, err)
@@ -264,6 +267,10 @@ func (t *ReviewEditTool) Execute(ctx context.Context, args map[string]any) (*Res
 	content := string(data)
 	if !strings.Contains(content, oldText) {
 		return nil, fmt.Errorf("old_text not found in file")
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("edit cancelled: %w", err)
 	}
 
 	newContent := strings.Replace(content, oldText, newText, 1)

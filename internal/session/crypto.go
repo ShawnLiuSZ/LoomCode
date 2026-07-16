@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -32,9 +33,9 @@ func NewCryptoWithKey(key string) *Crypto {
 	return &Crypto{key: hash[:]}
 }
 
-// deriveKey 派生加密密钥
-// 注意：此模块当前未被生产代码调用，会话实际明文存储。
-// 接线前必须改为：随机密钥 + Argon2id/scrypt + 随机 salt。
+// deriveKey 派生加密密钥。
+// 优先级：LOOMCODE_ENCRYPTION_KEY 环境变量 > ~/.loomcode/encryption.key。
+// 首次使用时自动生成 32 字节随机密钥并持久化到磁盘，保证跨重启可解密。
 func deriveKey() []byte {
 	// 从环境变量读取（推荐方式）
 	if envKey := os.Getenv("LOOMCODE_ENCRYPTION_KEY"); envKey != "" {
@@ -42,8 +43,20 @@ func deriveKey() []byte {
 		return hash[:]
 	}
 
-	// 未设置环境变量时生成随机密钥（每次启动不同，会话无法跨重启解密）
-	// 这是安全的默认行为，比用公开信息（hostname/username）好
+	// 持久化密钥文件路径
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	keyDir := filepath.Join(home, ".loomcode")
+	keyPath := filepath.Join(keyDir, "encryption.key")
+
+	// 若已存在则直接读取
+	if data, err := os.ReadFile(keyPath); err == nil && len(data) >= 32 {
+		return data[:32]
+	}
+
+	// 生成新的随机密钥
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		// 极端回退：用时间戳 + PID（不安全，但比 panic 好）
@@ -51,6 +64,10 @@ func deriveKey() []byte {
 		hash := sha256.Sum256([]byte(seed))
 		return hash[:]
 	}
+
+	// 持久化到磁盘，权限 0600
+	_ = os.MkdirAll(keyDir, 0700)
+	_ = os.WriteFile(keyPath, key, 0600)
 	return key
 }
 

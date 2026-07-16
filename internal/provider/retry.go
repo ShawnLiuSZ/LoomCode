@@ -51,7 +51,10 @@ func NewRetryableClient(timeout time.Duration) *RetryableHTTPClient {
 }
 
 // defaultTransport 共享的连接池 Transport
+// 显式启用 ProxyFromEnvironment，使 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量生效，
+// 否则处于代理/防火墙后的用户会出现“无法连接到服务器”错误。
 var defaultTransport = &http.Transport{
+	Proxy:               http.ProxyFromEnvironment,
 	MaxIdleConns:        20,
 	MaxIdleConnsPerHost: 10,
 	IdleConnTimeout:     90 * time.Second,

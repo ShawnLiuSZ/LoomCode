@@ -67,8 +67,9 @@ func (h *WSHub) run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
+			total := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client connected: %d total", len(h.clients))
+			log.Printf("WebSocket client connected: %d total", total)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -76,8 +77,9 @@ func (h *WSHub) run() {
 				delete(h.clients, client)
 				client.closeSend()
 			}
+			total := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client disconnected: %d total", len(h.clients))
+			log.Printf("WebSocket client disconnected: %d total", total)
 
 		case message := <-h.broadcast:
 			h.mu.RLock()

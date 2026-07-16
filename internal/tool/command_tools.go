@@ -26,6 +26,14 @@ type PermissionChecker interface {
 	Check(toolName string, args map[string]any) (allowed bool, reason string)
 }
 
+// OutsideTrustChecker 工作区外文件访问信任检查器接口。
+// 当工具请求访问 workspace root 之外的路径时，先调用 IsOutsideAccessAllowed 检查
+// 是否已授权；若未授权，调用 PromptAndAllow 向用户询问并持久化/临时记录授权。
+type OutsideTrustChecker interface {
+	IsOutsideAccessAllowed(path string) bool
+	PromptAndAllow(path string) error
+}
+
 // SetPermissionChecker 设置权限检查器
 func (t *BashTool) SetPermissionChecker(checker PermissionChecker) {
 	t.permission = checker
@@ -104,7 +112,7 @@ func (t *BashTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 	waitErr := cmd.Wait()
 
 	if truncated {
-		output = append(output, []byte("\n... (output truncated at 1MB)")...)
+		output = append(output, []byte(fmt.Sprintf("\n... (output truncated at %dKB)", maxOutputSize/1024))...)
 	}
 
 	result := &Result{Content: string(output)}
@@ -217,7 +225,7 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	content := buf.String()
 	if truncated {
-		content += "\n... (output truncated at 512KB)"
+		content += fmt.Sprintf("\n... (output truncated at %dKB)", maxOutputSize/1024)
 	}
 	if len(content) == 0 {
 		content = fmt.Sprintf("No matches found for '%s' in %s", pattern, path)
@@ -315,7 +323,7 @@ func (t *GlobTool) Execute(ctx context.Context, args map[string]any) (*Result, e
 
 	content := strings.TrimSpace(buf.String())
 	if truncated {
-		content += "\n... (output truncated at 512KB)"
+		content += fmt.Sprintf("\n... (output truncated at %dKB)", maxOutputSize/1024)
 	}
 	if len(content) == 0 {
 		content = fmt.Sprintf("No files matching '%s'", pattern)

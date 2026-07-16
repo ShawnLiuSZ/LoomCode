@@ -150,10 +150,14 @@ func (t *GitStatusTool) runGit(ctx context.Context, args ...string) (string, err
 }
 
 type GitDiffTool struct {
-	root string
+	root  string
+	trust OutsideTrustChecker
 }
 
 func (t *GitDiffTool) SetRoot(root string) { t.root = root }
+
+// SetTrust 设置工作区外文件访问信任检查器
+func (t *GitDiffTool) SetTrust(trust OutsideTrustChecker) { t.trust = trust }
 
 func (t *GitDiffTool) Name() string        { return "git_diff" }
 func (t *GitDiffTool) Description() string { return "Show changes in working tree or staged area" }
@@ -181,7 +185,7 @@ func (t *GitDiffTool) Execute(ctx context.Context, args map[string]any) (*Result
 	}
 	if path, _ := args["path"].(string); path != "" {
 		if t.root != "" {
-			resolved, err := resolveWithinRoot(t.root, path)
+			resolved, err := resolveWithinRoot(t.root, path, t.trust)
 			if err != nil {
 				return nil, err
 			}
@@ -257,10 +261,14 @@ func (t *GitDiffTool) runGit(ctx context.Context, args ...string) (string, error
 }
 
 type GitLogTool struct {
-	root string
+	root  string
+	trust OutsideTrustChecker
 }
 
 func (t *GitLogTool) SetRoot(root string) { t.root = root }
+
+// SetTrust 设置工作区外文件访问信任检查器
+func (t *GitLogTool) SetTrust(trust OutsideTrustChecker) { t.trust = trust }
 
 func (t *GitLogTool) Name() string        { return "git_log" }
 func (t *GitLogTool) Description() string { return "Show recent commit history" }
@@ -292,7 +300,7 @@ func (t *GitLogTool) Execute(ctx context.Context, args map[string]any) (*Result,
 	gitArgs := []string{"log", "--oneline", fmt.Sprintf("-%d", count)}
 	if path, _ := args["path"].(string); path != "" {
 		if t.root != "" {
-			resolved, err := resolveWithinRoot(t.root, path)
+			resolved, err := resolveWithinRoot(t.root, path, t.trust)
 			if err != nil {
 				return nil, err
 			}

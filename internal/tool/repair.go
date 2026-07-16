@@ -7,6 +7,12 @@ import (
 	"strings"
 )
 
+// scavengeRegexps 在包初始化时编译，避免每次 Repair() 重复编译。
+var (
+	scavengeNameRe = regexp.MustCompile(`"name"\s*:\s*"(\w+)"`)
+	scavengeArgsRe = regexp.MustCompile(`"arguments"\s*:\s*"({[^}]+})"`)
+)
+
 // RepairPipeline 工具调用修复流水线
 type RepairPipeline struct {
 	steps []RepairStep
@@ -147,8 +153,7 @@ func (s *ScavengeStep) Repair(reasoning string, raw string) ([]RepairedCall, err
 	}
 
 	// 从推理内容中提取 tool_calls JSON
-	re := regexp.MustCompile(`"name"\s*:\s*"(\w+)"`)
-	matches := re.FindStringSubmatch(reasoning)
+	matches := scavengeNameRe.FindStringSubmatch(reasoning)
 	if len(matches) < 2 {
 		return nil, fmt.Errorf("no tool call found in reasoning")
 	}
@@ -156,8 +161,7 @@ func (s *ScavengeStep) Repair(reasoning string, raw string) ([]RepairedCall, err
 	toolName := matches[1]
 
 	// 尝试提取 arguments
-	argRe := regexp.MustCompile(`"arguments"\s*:\s*"({[^}]+})"`)
-	argMatches := argRe.FindStringSubmatch(reasoning)
+	argMatches := scavengeArgsRe.FindStringSubmatch(reasoning)
 
 	var args map[string]any
 	if len(argMatches) >= 2 {

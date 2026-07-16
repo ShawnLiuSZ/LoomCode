@@ -235,7 +235,7 @@ func (a *MultiAgent) Run(ctx context.Context, task string) (string, error) {
 }
 
 // RunStream 流式执行任务（仅 Build 模式支持）
-func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan string, <-chan error) {
+func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan StreamChunk, <-chan error) {
 	ag := New(a.provider, a.tools)
 	ag.SetEventLog(a.eventLog) // 共享 eventLog，聚合内部 Agent 的 token/缓存统计到 UI 状态栏
 	ag.SetMaxSteps(a.maxSteps)
@@ -274,7 +274,7 @@ func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan string,
 
 	// 包装通道：流结束后捕获本轮对话，供下一轮延续。
 	// TUI 串行执行（用户等回复后才发下一条），故对 a.conversation 的写入无竞态。
-	outText := make(chan string, 100)
+	outText := make(chan StreamChunk, 100)
 	outErr := make(chan error, 1)
 	go func() {
 		defer close(outText)

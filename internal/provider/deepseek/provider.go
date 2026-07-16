@@ -37,6 +37,10 @@ func loadTokenizer() (*deepseek.Tokenizer, error) {
 		}
 		tokenizerInst, tokenizerErr = deepseek.NewDefaultTokenizer()
 	})
+	if tokenizerErr != nil {
+		// 失败时重置 sync.Once，允许同一进程内（如测试）下次重试或加载不同配置。
+		tokenizerOnce = sync.Once{}
+	}
 	return tokenizerInst, tokenizerErr
 }
 

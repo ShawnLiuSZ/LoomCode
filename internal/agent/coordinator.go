@@ -116,7 +116,7 @@ func (c *Coordinator) Run(ctx context.Context, task string) (string, error) {
 //
 // 调用方负责创建和关闭通道；应在 RunStream 返回后再关闭通道，
 // 并应在单独 goroutine 中读取 textCh 以避免死锁。
-func (c *Coordinator) RunStream(ctx context.Context, task string, textCh chan<- string, errCh chan<- error) {
+func (c *Coordinator) RunStream(ctx context.Context, task string, textCh chan<- StreamChunk, errCh chan<- error) {
 	// 阶段 1：planner 规划（非流式）
 	plan, err := c.planner.Run(ctx, task)
 	if err != nil {
@@ -132,11 +132,23 @@ func (c *Coordinator) RunStream(ctx context.Context, task string, textCh chan<- 
 	execTask := fmt.Sprintf("Plan:\n%s\n\nExecute the plan above.", plan)
 	execTextCh, execErrCh := c.executor.RunStream(ctx, execTask)
 
-	for t := range execTextCh {
-		textCh <- t
-	}
-	if e, ok := <-execErrCh; ok {
-		errCh <- e
+	// 在独立 goroutine 中转发文本流，避免调用方未并发读取 textCh 时死锁。
+	// 同时监听 ctx.Done()，防止调用方取消/超时时 goroutine 永久阻塞在 textCh 上。
+	go func() {
+		for t := range execTextCh {
+			select {
+			case textCh <- t:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	for e := range execErrCh {
+		select {
+		case errCh <- e:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

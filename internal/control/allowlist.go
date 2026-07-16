@@ -2,6 +2,7 @@ package control
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -17,13 +18,16 @@ type Allowlist struct {
 	// 敏感文件模式（.env, credentials, secrets 等）
 	sensitivePatterns []string
 
-	// 禁止的 Shell 模式
+	// 禁止的 Shell 模式（原始字符串）
 	blockedShellPatterns []string
+
+	// 编译后的禁止模式正则（空格替换为 \s+，其它字符 QuoteMeta）
+	blockedShellRegexps []*regexp.Regexp
 }
 
 // NewAllowlist 创建白名单
 func NewAllowlist() *Allowlist {
-	return &Allowlist{
+	a := &Allowlist{
 		sensitivePatterns: []string{
 			".env",
 			".env.local",
@@ -40,8 +44,8 @@ func NewAllowlist() *Allowlist {
 		blockedShellPatterns: []string{
 			"rm -rf",
 			"rm -fr",
-			"rm -r ",
-			"sudo ",
+			"rm -r",
+			"sudo",
 			"chmod 777",
 			"| sh",
 			"|bash",
@@ -52,12 +56,32 @@ func NewAllowlist() *Allowlist {
 			":(){ :|:& };:", // fork bomb
 			"curl",
 			"wget",
-			"nc ",
-			"ncat ",
-			"ssh ",
-			"scp ",
-			"rsync ",
+			"nc",
+			"ncat",
+			"ssh",
+			"scp",
+			"rsync",
 		},
+	}
+	a.compileBlockedRegexps()
+	return a
+}
+
+// compileBlockedRegexps 把 blockedShellPatterns 编译成正则表达式：
+// 模式中的空白字符替换为 \s+（匹配任意数量空白，防止 "rm -r /" 因缺少空格被绕过），
+// 其它字符做 QuoteMeta 转义。编译失败的模式被跳过。
+func (a *Allowlist) compileBlockedRegexps() {
+	a.blockedShellRegexps = make([]*regexp.Regexp, 0, len(a.blockedShellPatterns))
+	for _, p := range a.blockedShellPatterns {
+		// 先按空白分段，对每段转义后再用 \s+ 连接。
+		parts := strings.Fields(p)
+		for i := range parts {
+			parts[i] = regexp.QuoteMeta(parts[i])
+		}
+		pattern := strings.Join(parts, `\s+`)
+		if re, err := regexp.Compile(pattern); err == nil {
+			a.blockedShellRegexps = append(a.blockedShellRegexps, re)
+		}
 	}
 }
 
@@ -111,9 +135,9 @@ func (a *Allowlist) isShellAllowed(args map[string]any) bool {
 		return false
 	}
 
-	// 检查禁止模式（纵深防御）
-	for _, blocked := range a.blockedShellPatterns {
-		if strings.Contains(command, blocked) {
+	// 检查禁止模式（纵深防御）：使用正则匹配，空白可被任意 \s+ 绕过防御。
+	for _, re := range a.blockedShellRegexps {
+		if re.MatchString(command) {
 			return false
 		}
 	}
@@ -417,9 +441,12 @@ func (a *Allowlist) isFileWriteAllowed(args map[string]any) bool {
 
 // IsBlockedShell 检查 Shell 命令是否被禁止
 func (a *Allowlist) IsBlockedShell(command string) (bool, string) {
-	for _, blocked := range a.blockedShellPatterns {
-		if strings.Contains(command, blocked) {
-			return true, blocked
+	for i, re := range a.blockedShellRegexps {
+		if re.MatchString(command) {
+			if i < len(a.blockedShellPatterns) {
+				return true, a.blockedShellPatterns[i]
+			}
+			return true, re.String()
 		}
 	}
 	return false, ""

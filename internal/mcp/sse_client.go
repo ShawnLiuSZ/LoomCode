@@ -382,7 +382,11 @@ func (c *SSEClient) call(ctx context.Context, method string, params any) (*Respo
 	c.mu.Lock()
 
 	// 发送 POST 请求
-	data, _ := json.Marshal(req)
+	data, err := json.Marshal(req)
+	if err != nil {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	postURL := c.baseURL + "/message"
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", postURL, strings.NewReader(string(data)))
@@ -477,11 +481,19 @@ func (c *SSEClient) sendNotification(ctx context.Context, method string, params 
 	}
 
 	if params != nil {
-		data, _ := json.Marshal(params)
+		data, err := json.Marshal(params)
+		if err != nil {
+			log.Printf("marshal notification params for %s failed: %v", method, err)
+			return
+		}
 		notif.Params = data
 	}
 
-	data, _ := json.Marshal(notif)
+	data, err := json.Marshal(notif)
+	if err != nil {
+		log.Printf("marshal notification %s failed: %v", method, err)
+		return
+	}
 	postURL := c.baseURL + "/message"
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", postURL, strings.NewReader(string(data)))
@@ -493,9 +505,14 @@ func (c *SSEClient) sendNotification(ctx context.Context, method string, params 
 		httpReq.Header.Set("Mcp-Session-Id", c.sessionID)
 	}
 
-	if _, err := c.httpClient.Do(httpReq); err != nil {
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
 		log.Printf("send notification %s failed: %v", method, err)
+		return
 	}
+	// 必须关闭并 drain 响应体，否则连接池中的 TCP 连接无法复用，长期运行会耗尽连接。
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 }
 
 // ParseSSEURL 解析 SSE URL

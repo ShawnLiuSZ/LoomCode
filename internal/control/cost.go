@@ -170,14 +170,11 @@ func (c *CostController) CompressResult(content string) string {
 		return content
 	}
 
+	// 此时 len(content) > maxLen > 500，head/tail 必然有效。
 	head := content[:500]
-	tail := ""
-	if len(content) > 500 {
-		remaining := len(content) - 500
-		tail = content[len(content)-200:]
-		return fmt.Sprintf("%s\n\n... (%d characters truncated) ...\n\n%s", head, remaining, tail)
-	}
-	return head + tail
+	remaining := len(content) - 500
+	tail := content[len(content)-200:]
+	return fmt.Sprintf("%s\n\n... (%d characters truncated) ...\n\n%s", head, remaining, tail)
 }
 
 // StatusReport 返回成本状态报告

@@ -7,6 +7,20 @@ import (
 	"testing"
 )
 
+// mockTrust 用于测试 resolveWithinRoot 的信任提示路径。
+type mockTrust struct {
+	allowed      bool
+	promptCalled bool
+	promptGrant  bool
+}
+
+func (m *mockTrust) IsOutsideAccessAllowed(path string) bool { return m.allowed }
+func (m *mockTrust) PromptAndAllow(path string) error {
+	m.promptCalled = true
+	m.allowed = m.promptGrant
+	return nil
+}
+
 // C2: 文件工具必须把路径限制在 workspace root 之内
 func TestFileTools_C2_Containment(t *testing.T) {
 	root := t.TempDir()
@@ -85,5 +99,79 @@ func TestFileTools_C2_NoRootBackwardCompat(t *testing.T) {
 	res, err := rt.Execute(context.Background(), map[string]any{"path": f})
 	if err != nil || res.Content != "data" {
 		t.Fatalf("no-root read should work: err=%v content=%q", err, res.Content)
+	}
+}
+
+// C2: 已授权的工作区外路径应允许访问
+func TestFileTools_C2_TrustedOutsideAccess(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("allowed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	trust := &mockTrust{allowed: true}
+	rt := &ReadFileTool{}
+	rt.SetRoot(root)
+	rt.SetTrust(trust)
+
+	res, err := rt.Execute(context.Background(), map[string]any{"path": secret})
+	if err != nil {
+		t.Fatalf("trusted outside path should be readable: %v", err)
+	}
+	if res.Content != "allowed" {
+		t.Errorf("content = %q, want %q", res.Content, "allowed")
+	}
+	if trust.promptCalled {
+		t.Error("prompt should not be called when already allowed")
+	}
+}
+
+// C2: 未授权的工作区外路径经提示授权后应允许访问
+func TestFileTools_C2_PromptedOutsideAccess(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("granted"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	trust := &mockTrust{allowed: false, promptGrant: true}
+	rt := &ReadFileTool{}
+	rt.SetRoot(root)
+	rt.SetTrust(trust)
+
+	res, err := rt.Execute(context.Background(), map[string]any{"path": secret})
+	if err != nil {
+		t.Fatalf("prompt-granted outside path should be readable: %v", err)
+	}
+	if res.Content != "granted" {
+		t.Errorf("content = %q, want %q", res.Content, "granted")
+	}
+	if !trust.promptCalled {
+		t.Error("prompt should be called when not yet allowed")
+	}
+}
+
+// C2: 用户拒绝授权后工作区外访问仍应被拒绝
+func TestFileTools_C2_DeniedOutsideAccess(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("denied"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	trust := &mockTrust{allowed: false, promptGrant: false}
+	rt := &ReadFileTool{}
+	rt.SetRoot(root)
+	rt.SetTrust(trust)
+
+	if _, err := rt.Execute(context.Background(), map[string]any{"path": secret}); err == nil {
+		t.Fatal("denied outside path should still be rejected")
+	}
+	if !trust.promptCalled {
+		t.Error("prompt should be called when not yet allowed")
 	}
 }

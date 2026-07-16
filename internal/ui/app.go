@@ -113,15 +113,20 @@ type App struct {
 	activityPhase string // "thinking" | "tool"
 
 	// 流式输出缓冲
-	streamMu    sync.Mutex
-	streamBuf   string
-	streamChars int // 当前步流式已接收字符数，用于实时估算生成 token
+	streamMu           sync.Mutex
+	streamBuf          string // 普通内容缓冲
+	streamReasoningBuf string // 思考过程缓冲
+	streamChars        int    // 当前步流式已接收字符数，用于实时估算生成 token
 
 	// BubbleTea program reference
 	program *tea.Program
 
 	// Approval
 	pendingApproval *pendingWrite
+
+	// 工作区外文件访问授权
+	trust          *control.WorkspaceTrust
+	pendingOutside *pendingOutsideAccess
 
 	// 请求取消
 	cancelFunc context.CancelFunc
@@ -147,10 +152,11 @@ type App struct {
 }
 
 type chatMessage struct {
-	Role      string
-	Content   string
-	ToolName  string
-	Timestamp time.Time
+	Role              string
+	Content           string
+	ReasoningContent  string // 模型的思考过程（流式片段聚合）
+	ToolName          string
+	Timestamp         time.Time
 }
 
 // modelPickerEntry 模型选择器条目（包含 provider 信息）
@@ -167,7 +173,19 @@ type pendingWrite struct {
 	decision   chan bool
 }
 
+type pendingOutsideAccess struct {
+	path string
+	done chan outsideAccessDecision
+}
+
+type outsideAccessDecision struct {
+	granted   bool
+	permanent bool
+}
+
 type approvalMsg struct{}
+
+type outsideAccessMsg struct{}
 
 // activityMsg Agent 执行进度消息（由 Agent 回调发送）。
 type activityMsg struct {
@@ -353,6 +371,37 @@ func (a *App) SetCheckpointManager(mgr *tool.CheckpointManager) { a.checkpointMg
 // SetEventLog 注入 agent EventLog,用于在状态栏显示 prefix cache 命中率。
 // 传入 nil 则不显示 cache 字段。
 func (a *App) SetEventLog(l *agent.EventLog) { a.eventLog = l }
+
+// SetTrust 注入工作区信任管理器，用于 TUI 模式下提示工作区外文件访问授权。
+func (a *App) SetTrust(trust *control.WorkspaceTrust) { a.trust = trust }
+
+// IsOutsideAccessAllowed 报告 path 是否已被允许访问（委托给 WorkspaceTrust）。
+func (a *App) IsOutsideAccessAllowed(path string) bool {
+	if a.trust == nil {
+		return false
+	}
+	return a.trust.IsOutsideAccessAllowed(path)
+}
+
+// PromptAndAllow 在 TUI 中提示用户是否允许访问工作区外 path。
+// 工具执行 goroutine 会阻塞在此方法，直到用户做出选择。
+func (a *App) PromptAndAllow(path string) error {
+	if a.program == nil || a.trust == nil {
+		return fmt.Errorf("TUI not ready or trust not configured")
+	}
+	done := make(chan outsideAccessDecision, 1)
+	a.pendingOutside = &pendingOutsideAccess{
+		path: path,
+		done: done,
+	}
+	a.program.Send(outsideAccessMsg{})
+	decision := <-done
+	a.pendingOutside = nil
+	if !decision.granted {
+		return nil
+	}
+	return a.trust.AllowOutsideAccess(path, decision.permanent)
+}
 
 func (a *App) AddApprovalGuard(perm *control.Permission) {
 	a.agent.AddGuard(func(tc tool.Call) error {
@@ -566,11 +615,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// 更新 viewport
 		if a.viewport.Width == 0 {
 			a.viewport = viewport.New(msg.Width, a.height-8)
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.MouseWheelEnabled = true
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		} else {
 			a.viewport.Width = msg.Width
 			a.viewport.Height = a.height - 8
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.MouseWheelEnabled = true
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 		}
 
@@ -595,18 +646,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamChunkMsg:
 		a.streamMu.Lock()
-		a.streamBuf += string(msg)
-		a.streamChars += len(msg)
+		if msg.IsReasoning {
+			a.streamReasoningBuf += msg.Content
+		} else {
+			a.streamBuf += msg.Content
+		}
+		a.streamChars += len(msg.Content)
 		buf := a.streamBuf
+		reasoningBuf := a.streamReasoningBuf
 		a.streamMu.Unlock()
-		a.viewport.SetContent(a.renderMessages(a.height-8, buf))
+		a.viewport.SetContent(a.renderMessages(a.height-8, buf, reasoningBuf))
 		a.viewport.GotoBottom()
 		return a, nil
 
 	case streamDoneMsg:
 		a.streamMu.Lock()
 		content := a.streamBuf
+		reasoning := a.streamReasoningBuf
 		a.streamBuf = ""
+		a.streamReasoningBuf = ""
 		a.streamChars = 0
 		a.streamMu.Unlock()
 		a.loading = false
@@ -614,15 +672,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.lastStep = 0
 		a.lastTool = ""
 		a.activityPhase = ""
-		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, Timestamp: time.Now()})
+		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, ReasoningContent: reasoning, Timestamp: time.Now()})
 		a.saveSession()
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, a.processQueue()
 
 	case streamErrorMsg:
 		a.streamMu.Lock()
 		a.streamBuf = ""
+		a.streamReasoningBuf = ""
 		a.streamMu.Unlock()
 		a.loading = false
 		a.cancelFunc = nil
@@ -632,12 +691,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		errStr := friendlyError(string(msg))
 		a.messages = append(a.messages, chatMessage{Role: "error", Content: errStr, Timestamp: time.Now()})
 		a.saveSession()
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, a.processQueue()
 
 	case approvalMsg:
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
+		a.viewport.GotoBottom()
+		return a, nil
+
+	case outsideAccessMsg:
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, nil
 
@@ -675,7 +739,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			pw := a.pendingApproval
 			a.pendingApproval = nil
 			pw.decision <- true
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, nil
 		case "esc":
@@ -683,7 +747,36 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.pendingApproval = nil
 			pw.decision <- false
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "操作已拒绝"})
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
+			a.viewport.GotoBottom()
+			return a, nil
+		default:
+			return a, nil
+		}
+	}
+
+	if a.pendingOutside != nil {
+		switch key {
+		case "t":
+			po := a.pendingOutside
+			a.pendingOutside = nil
+			po.done <- outsideAccessDecision{granted: true, permanent: false}
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
+			a.viewport.GotoBottom()
+			return a, nil
+		case "p":
+			po := a.pendingOutside
+			a.pendingOutside = nil
+			po.done <- outsideAccessDecision{granted: true, permanent: true}
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
+			a.viewport.GotoBottom()
+			return a, nil
+		case "n", "esc":
+			po := a.pendingOutside
+			a.pendingOutside = nil
+			po.done <- outsideAccessDecision{granted: false, permanent: false}
+			a.messages = append(a.messages, chatMessage{Role: "system", Content: "已拒绝访问工作区外文件"})
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, nil
 		default:
@@ -696,11 +789,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "down":
 			a.modelIdx = (a.modelIdx + 1) % len(a.modelList)
-			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 			return a, nil
 		case "up":
 			a.modelIdx = (a.modelIdx - 1 + len(a.modelList)) % len(a.modelList)
-			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 			return a, nil
 		case "enter":
 			if a.modelIdx >= 0 && a.modelIdx < len(a.modelList) {
@@ -721,14 +814,14 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				a.messages = append(a.messages, chatMessage{
 					Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", entry.ProviderName, entry.ModelID),
 				})
-				a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+				a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 				a.viewport.GotoBottom()
 			}
 			a.showModelPicker = false
 			return a, nil
 		case "esc":
 			a.showModelPicker = false
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, nil
 		}
@@ -739,11 +832,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "down":
 			a.resumeIdx = (a.resumeIdx + 1) % len(a.resumeSessions)
-			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 			return a, nil
 		case "up":
 			a.resumeIdx = (a.resumeIdx - 1 + len(a.resumeSessions)) % len(a.resumeSessions)
-			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 			return a, nil
 		case "enter":
 			sess := a.resumeSessions[a.resumeIdx]
@@ -753,13 +846,13 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.RestoreSession(sess)
 			a.showResumePicker = false
 			a.resumeSessions = nil
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, nil
 		case "esc":
 			a.showResumePicker = false
 			a.resumeSessions = nil
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, nil
 		}
@@ -807,7 +900,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Role:    "system",
 			Content: "再按一次 Ctrl+C 确认退出（3 秒内有效）",
 		})
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		// 3 秒后自动重置 confirmQuit
 		return a, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
 			return confirmQuitResetMsg{}
@@ -819,7 +912,7 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.cancelFunc = nil
 			a.loading = false
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "请求已取消"})
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			return a, nil
 		}
 		a.textArea.Reset()
@@ -909,7 +1002,7 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 			Role:    "system",
 			Content: fmt.Sprintf("已加入队列 (%d 待处理)", queueLen),
 		})
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, nil
 	}
@@ -918,7 +1011,7 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
-	a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 	return a, a.runAgent(ctx, input)
 }
@@ -1203,7 +1296,7 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 			models := a.provider.Models()
 			if len(models) == 0 {
 				a.messages = append(a.messages, chatMessage{Role: "system", Content: "当前 Provider 没有注册模型"})
-				a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+				a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 				a.viewport.GotoBottom()
 				return a, nil
 			}
@@ -1224,7 +1317,7 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.showModelPicker = true
-		a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+		a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 		return a, nil
 	}
 
@@ -1251,7 +1344,7 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 	a.agent.SetModel(newModel)
 	a.persistModelChange() // 持久化切换，下次启动恢复
 	a.messages = append(a.messages, chatMessage{Role: "system", Content: fmt.Sprintf("模型切换为: %s/%s", a.provider.Name(), newModel)})
-	a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 	return a, nil
 }
@@ -1420,7 +1513,7 @@ func (a *App) handleResumeCmd(parts []string) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+	a.viewport.SetContent(a.renderMessages(a.viewport.Height, "", ""))
 	return a, nil
 }
 
@@ -1459,7 +1552,7 @@ func (a *App) handleCompactCmd() (tea.Model, tea.Cmd) {
 	newMessages = append(newMessages, a.messages[len(a.messages)-keepRecent:]...)
 	a.messages = newMessages
 
-	a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.messages = append(a.messages, chatMessage{
 		Role: "system", Content: fmt.Sprintf("上下文已压缩：保留最近 %d 条消息，中间 %d 条已摘要。", keepRecent, len(middle)),
 	})
@@ -1506,6 +1599,11 @@ func (a *App) View() string {
 		approvalH = lipgloss.Height(a.renderApproval()) + 2 // +2 for surrounding \n
 	}
 
+	outsideH := 0
+	if a.pendingOutside != nil {
+		outsideH = lipgloss.Height(a.renderOutsideAccess()) + 2 // +2 for surrounding \n
+	}
+
 	suggestionsH := 0
 	if a.showSuggestions && len(a.suggestions) > 0 {
 		suggestionsH = len(a.suggestions)
@@ -1513,7 +1611,7 @@ func (a *App) View() string {
 
 	// 固定部分高度（不包括 viewport）
 	// viewport 部分占 viewport.Height + 1（后面有一个 \n）
-	fixedH := titleH + sepH + activityH + approvalH + suggestionsH + textareaH + statusH
+	fixedH := titleH + sepH + activityH + approvalH + outsideH + suggestionsH + textareaH + statusH
 	targetVpHeight := a.height - fixedH - 1 // -1 for the \n after viewport
 	if targetVpHeight < 3 {
 		targetVpHeight = 3
@@ -1522,12 +1620,13 @@ func (a *App) View() string {
 	// viewport 尚未初始化时（极小终端或启动顺序差异），用当前尺寸兜底创建。
 	if a.viewport.Width == 0 {
 		a.viewport = viewport.New(a.width, targetVpHeight)
+		a.viewport.MouseWheelEnabled = true
 	}
 
 	// 如果 viewport 高度需要调整，更新它并重新设置内容
 	if a.viewport.Height != targetVpHeight {
 		a.viewport.Height = targetVpHeight
-		a.viewport.SetContent(a.renderMessages(targetVpHeight, ""))
+		a.viewport.SetContent(a.renderMessages(targetVpHeight, "", ""))
 		a.viewport.GotoBottom()
 	}
 
@@ -1571,6 +1670,13 @@ func (a *App) View() string {
 		sb.WriteString("\n")
 	}
 
+	// 工作区外文件访问授权提示
+	if a.pendingOutside != nil {
+		sb.WriteString("\n")
+		sb.WriteString(a.renderOutsideAccess())
+		sb.WriteString("\n")
+	}
+
 	// 命令联想
 	if a.showSuggestions && len(a.suggestions) > 0 {
 		for i, s := range a.suggestions {
@@ -1603,7 +1709,7 @@ func (a *App) renderTitle() string {
 	return headerStyle.Width(a.width).Render(title)
 }
 
-func (a *App) renderMessages(visibleLines int, streamBuf string) string {
+func (a *App) renderMessages(visibleLines int, streamBuf, streamReasoningBuf string) string {
 	var sb strings.Builder
 
 	for _, msg := range a.messages {
@@ -1615,6 +1721,10 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 			sb.WriteString(userStyle.Render("▸ " + msg.Content))
 			sb.WriteString("\n")
 		case "assistant":
+			// 先渲染思考过程（灰色折叠样式），再渲染正式回答。
+			if msg.ReasoningContent != "" {
+				a.renderReasoning(&sb, msg.ReasoningContent)
+			}
 			// 尝试用 glamour 渲染 markdown
 			rendered := a.renderMarkdown(msg.Content)
 			for _, line := range strings.Split(rendered, "\n") {
@@ -1647,12 +1757,14 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 		a.renderModelPicker(&sb, visibleLines)
 	}
 
+	// 流式思考过程缓冲
+	if a.loading && streamReasoningBuf != "" {
+		a.renderReasoning(&sb, streamReasoningBuf)
+	}
+
 	// 流式输出缓冲
-	a.streamMu.Lock()
-	buf := a.streamBuf
-	a.streamMu.Unlock()
-	if a.loading && buf != "" {
-		rendered := a.renderMarkdown(buf)
+	if a.loading && streamBuf != "" {
+		rendered := a.renderMarkdown(streamBuf)
 		for _, line := range strings.Split(rendered, "\n") {
 			sb.WriteString(assistantStyle.Render("  " + line))
 			sb.WriteString("\n")
@@ -1660,6 +1772,16 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 	}
 
 	return sb.String()
+}
+
+// renderReasoning 以灰色斜体折叠样式渲染模型的思考过程。
+func (a *App) renderReasoning(sb *strings.Builder, reasoning string) {
+	reasoningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	lines := strings.Split(reasoning, "\n")
+	for _, line := range lines {
+		sb.WriteString(reasoningStyle.Render("    " + line))
+		sb.WriteString("\n")
+	}
 }
 
 // renderWelcome 渲染欢迎界面（Logo + Tips + 状态）
@@ -1997,6 +2119,17 @@ func (a *App) renderApproval() string {
 	return sb.String()
 }
 
+func (a *App) renderOutsideAccess() string {
+	po := a.pendingOutside
+	var sb strings.Builder
+
+	sb.WriteString(approvalTitleStyle.Render(fmt.Sprintf("  ⚠ 请求访问工作区外文件: %s", po.path)))
+	sb.WriteString("\n")
+	sb.WriteString(approvalHelpStyle.Render("  t 临时访问 | p 永久访问 | n/Esc 拒绝"))
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 func renderWriteDiff(pw *pendingWrite) string {
 	var sb strings.Builder
 	lines := strings.Split(pw.newContent, "\n")
@@ -2059,13 +2192,13 @@ func (a *App) runAgent(ctx context.Context, input string) tea.Cmd {
 
 		for textCh != nil || errCh != nil {
 			select {
-			case text, ok := <-textCh:
+			case chunk, ok := <-textCh:
 				if !ok {
 					textCh = nil
 					break
 				}
 				if a.program != nil {
-					a.program.Send(streamChunkMsg(text))
+					a.program.Send(streamChunkMsg(chunk))
 				}
 			case err, ok := <-errCh:
 				if !ok {
@@ -2087,7 +2220,7 @@ func (a *App) runAgent(ctx context.Context, input string) tea.Cmd {
 }
 
 // 消息类型
-type streamChunkMsg string
+type streamChunkMsg agent.StreamChunk
 type streamDoneMsg struct{}
 type streamErrorMsg string
 
@@ -2110,8 +2243,14 @@ func friendlyError(err string) string {
 		return "请求过于频繁，请稍后重试。"
 	case strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded"):
 		return "请求超时，请检查网络连接或稍后重试。"
-	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "dial tcp"):
-		return "无法连接到服务器，请检查网络。"
+	case strings.Contains(lower, "no such host") || strings.Contains(lower, "lookup"):
+		return "DNS 解析失败，无法找到服务器地址。请检查网络连接或 base_url 配置。"
+	case strings.Contains(lower, "connection refused"):
+		return "服务器拒绝连接，请检查 base_url 或服务器状态。"
+	case strings.Contains(lower, "proxy") || strings.Contains(lower, "proxyconnect"):
+		return "代理连接失败，请检查 HTTP_PROXY/HTTPS_PROXY/NO_PROXY 环境变量。"
+	case strings.Contains(lower, "dial tcp"):
+		return "无法连接到服务器，请检查网络或代理配置。"
 	case strings.Contains(lower, "503"):
 		return "服务暂时不可用，请稍后重试。"
 	case strings.Contains(lower, "500"):
@@ -2264,7 +2403,7 @@ func (a *App) processQueue() tea.Cmd {
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
 	a.cancelFunc = cancel
-	a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 
 	return a.runAgent(ctx, next)

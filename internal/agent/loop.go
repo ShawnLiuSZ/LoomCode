@@ -318,9 +318,16 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 	}
 }
 
-// RunStream 流式运行 Agent，通过 channel 返回文本增量
-func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-chan error) {
-	textCh := make(chan string, 100)
+// StreamChunk 表示流式输出中的一个文本片段。
+type StreamChunk struct {
+	Content     string
+	IsReasoning bool
+}
+
+// RunStream 流式运行 Agent，通过 channel 返回文本增量。
+// StreamChunk.IsReasoning 为 true 时表示该片段为模型的思考过程（reasoning_content）。
+func (a *Agent) RunStream(ctx context.Context, task string) (<-chan StreamChunk, <-chan error) {
+	textCh := make(chan StreamChunk, 100)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -383,16 +390,20 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			for event := range streamCh {
 				switch event.Type {
 				case provider.EventText:
+					// 流式转发推理过程，让 UI 可以选择性展示（如灰色折叠）。
 					if event.ReasoningContent != "" {
 						reasoningContent += event.ReasoningContent
-					} else {
-						fullContent += event.Content
+						select {
+						case textCh <- StreamChunk{Content: event.ReasoningContent, IsReasoning: true}:
+						case <-ctx.Done():
+							return
+						}
 					}
-					// 只显示实际内容给用户，不显示推理过程
 					if event.Content != "" {
+						fullContent += event.Content
 						// H19 修复：消费者退出时 ctx 取消，带保护的发送避免永久阻塞。
 						select {
-						case textCh <- event.Content:
+						case textCh <- StreamChunk{Content: event.Content, IsReasoning: false}:
 						case <-ctx.Done():
 							return
 						}
@@ -504,7 +515,7 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 
 		// 达到步数上限：发提示后正常结束，保留已生成内容（而非发 error 让 UI 丢弃内容）
 		select {
-		case textCh <- fmt.Sprintf("\n\n[已达到最大步数限制 (%d)。可使用 /goal 设置停止条件，或 /steps 增大步数限制后继续。]", a.maxSteps):
+		case textCh <- StreamChunk{Content: fmt.Sprintf("\n\n[已达到最大步数限制 (%d)。可使用 /goal 设置停止条件，或 /steps 增大步数限制后继续。]", a.maxSteps)}:
 		case <-ctx.Done():
 		}
 	}()
