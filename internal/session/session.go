@@ -234,6 +234,23 @@ func (m *Manager) UpdateModelProvider(model, provider string) error {
 	return s.saveMeta()
 }
 
+// UpdateName 更新指定会话的名称并持久化。
+func (m *Manager) UpdateName(id, name string) error {
+	m.mu.RLock()
+	s, ok := m.sessions[id]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session %q not found", id)
+	}
+
+	s.mu.Lock()
+	s.Name = name
+	s.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	return s.saveMeta()
+}
+
 func (s *Session) saveMeta() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

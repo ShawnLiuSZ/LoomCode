@@ -27,10 +27,11 @@ type Agent struct {
 	skillsMgr   *skills.Manager     // Skills 管理器
 	memory      MemoryProvider      // 记忆提供者（项目知识/用户偏好）
 	history     []provider.Message  // 跨轮次对话历史（不含 system，每轮重建）
-	onCost      func(float64)       // 成本回调
-	effort      *EffortManager      // 思考强度管理器
-	eventLog    *EventLog           // 事件日志（缓存命中统计等）
-	fingerprint *FingerprintTracker // prefix 指纹追踪器（验证 prefix cache 是否命中预期）
+	onCost      func(float64)                       // 成本回调
+	onProgress  func(step int, phase, tool string) // 进度回调（phase: thinking/tool）
+	effort      *EffortManager                     // 思考强度管理器
+	eventLog    *EventLog                          // 事件日志（缓存命中统计等）
+	fingerprint *FingerprintTracker                // prefix 指纹追踪器（验证 prefix cache 是否命中预期）
 
 	costBudget           float64
 	onBudgetExceeded     func()
@@ -183,6 +184,17 @@ func (a *Agent) initMessages(task string) {
 // SetCostCallback 设置成本回调（每次 API 调用后触发）
 func (a *Agent) SetCostCallback(fn func(float64)) { a.onCost = fn }
 
+// SetProgressCallback 设置进度回调（step 从 1 开始；phase 为 "thinking" 或 "tool"）。
+// UI 据此实时显示当前执行步骤与工具名。
+func (a *Agent) SetProgressCallback(fn func(step int, phase, tool string)) { a.onProgress = fn }
+
+// progress 安全触发进度回调。
+func (a *Agent) progress(step int, phase, tool string) {
+	if a.onProgress != nil {
+		a.onProgress(step, phase, tool)
+	}
+}
+
 // SetCostBudget 设置成本预算上限
 func (a *Agent) SetCostBudget(b float64) { a.costBudget = b }
 
@@ -214,8 +226,25 @@ func (a *Agent) getContextWindow() int {
 	return 0 // 未知模型，不截断
 }
 
-// estimateTokens 粗略估算消息列表的 token 数（1 token ≈ 4 bytes for English, ~2 for CJK）
-func estimateTokens(messages []provider.Message) int {
+// estimateTokens 估算消息列表的 token 数。
+// 如果 provider 实现了 provider.TokenCounter，则使用离线 tokenizer；否则回退到粗略估算。
+func (a *Agent) estimateTokens(messages []provider.Message) int {
+	if tc, ok := a.provider.(provider.TokenCounter); ok {
+		total := 0
+		for _, msg := range messages {
+			n, err := tc.CountTokens(msg.Content)
+			if err == nil {
+				total += n
+			} else {
+				total += len(msg.Content) / 3
+			}
+			if len(msg.ToolCalls) > 0 {
+				total += 50 * len(msg.ToolCalls) // 工具调用开销
+			}
+		}
+		return total
+	}
+
 	total := 0
 	for _, msg := range messages {
 		total += len(msg.Content) / 3 // 粗略估算
@@ -236,7 +265,7 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 
 	maxInput := ctxWindow * 80 / 100
 
-	tokens := estimateTokens(a.messages)
+	tokens := a.estimateTokens(a.messages)
 	if tokens <= maxInput {
 		return
 	}
@@ -284,7 +313,7 @@ func (a *Agent) truncateMessages(ctxWindow int) {
 
 		// 删除整个轮次 [roundStart, roundEnd]
 		deleted := a.messages[roundStart : roundEnd+1]
-		tokens -= estimateTokens(deleted)
+		tokens -= a.estimateTokens(deleted)
 		a.messages = append(a.messages[:roundStart], a.messages[roundEnd+1:]...)
 	}
 }
@@ -317,6 +346,9 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 				return
 			default:
 			}
+
+			// 向 UI 报告当前步骤：模型思考中。
+			a.progress(step+1, "thinking", "")
 
 			// 压缩以适应上下文窗口（缓存友好，失败时回退机械截断）
 			a.compactMessages(ctx, a.getContextWindow())
@@ -439,6 +471,11 @@ func (a *Agent) RunStream(ctx context.Context, task string) (<-chan string, <-ch
 			// 无工具调用 → 完成
 			if len(toolCalls) == 0 {
 				return
+			}
+
+			// 向 UI 报告即将执行的工具（取第一个工具名用于展示）。
+			if len(toolCalls) > 0 {
+				a.progress(step+1, "tool", toolCalls[0].Function.Name)
 			}
 
 			// 执行工具

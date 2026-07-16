@@ -1,13 +1,15 @@
 #!/usr/bin/expect -f
 set timeout 5
-set env(LINES) 40
-set env(COLUMNS) 120
+set down [format "%c%c%c" 0x1b 0x5b 0x42]
+set ctrl_c [format "%c" 0x03]
+# 设置当前终端大小，子进程 spawn 会继承
+stty rows 60 columns 120
 spawn ./bin/loomcode
 expect "输入任务"
+sleep 1
 send "/model\r"
-expect "选择模型"
 sleep 2
-send "\003"
+send -- $ctrl_c
 expect "再按一次"
-send "\003"
+send -- $ctrl_c
 expect eof

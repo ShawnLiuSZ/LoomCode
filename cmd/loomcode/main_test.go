@@ -180,3 +180,37 @@ func indexOf(s string, ch byte) int {
 	}
 	return -1
 }
+
+func TestResolveAPIKey(t *testing.T) {
+	t.Setenv("DEEPSEEK_API_KEY", "sk-env-key")
+
+	tests := []struct {
+		name     string
+		cfg      config.ProviderConfig
+		expected string
+	}{
+		{
+			name:     "api_key takes precedence",
+			cfg:      config.ProviderConfig{APIKey: "sk-direct-key", APIKeyEnv: "DEEPSEEK_API_KEY"},
+			expected: "sk-direct-key",
+		},
+		{
+			name:     "fallback to api_key_env",
+			cfg:      config.ProviderConfig{APIKey: "", APIKeyEnv: "DEEPSEEK_API_KEY"},
+			expected: "sk-env-key",
+		},
+		{
+			name:     "empty when both missing",
+			cfg:      config.ProviderConfig{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveAPIKey(&tt.cfg); got != tt.expected {
+				t.Errorf("resolveAPIKey() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}

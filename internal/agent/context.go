@@ -157,7 +157,7 @@ func (a *Agent) compactMessages(ctx context.Context, ctxWindow int) {
 		return // 未知模型，不压缩
 	}
 	maxInput := ctxWindow * 80 / 100
-	if estimateTokens(a.messages) <= maxInput {
+	if a.estimateTokens(a.messages) <= maxInput {
 		return
 	}
 

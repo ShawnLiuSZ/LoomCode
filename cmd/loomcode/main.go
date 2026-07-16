@@ -328,6 +328,18 @@ func configureToolPermissions(tools *tool.Registry, perm *control.Permission, cp
 	}
 }
 
+// resolveAPIKey 解析 Provider 的 API Key。
+// 若配置中直接填写 api_key 则优先使用；否则从 api_key_env 指定的环境变量读取。
+func resolveAPIKey(provCfg *config.ProviderConfig) string {
+	if provCfg.APIKey != "" {
+		return provCfg.APIKey
+	}
+	if provCfg.APIKeyEnv != "" {
+		return os.Getenv(provCfg.APIKeyEnv)
+	}
+	return ""
+}
+
 func selectModel(provCfg *config.ProviderConfig) string {
 	if *flagModel != "" {
 		return *flagModel
@@ -364,11 +376,13 @@ func createProvider(provCfg *config.ProviderConfig) (provider.Provider, error) {
 		}
 	}
 
+	apiKey := resolveAPIKey(provCfg)
+
 	return reg.Create(provCfg.Kind, provider.Config{
 		Name:         provCfg.Name,
 		DisplayName:  provCfg.DisplayName,
 		BaseURL:      provCfg.BaseURL,
-		APIKey:       os.Getenv(provCfg.APIKeyEnv),
+		APIKey:       apiKey,
 		AuthMethod:   provCfg.AuthMethod,
 		DefaultModel: provCfg.DefaultModel,
 		Models:       models,

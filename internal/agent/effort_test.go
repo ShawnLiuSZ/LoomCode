@@ -1,10 +1,11 @@
 package agent
 
 import (
+	"math"
 	"testing"
 )
 
-func TestEffortLevel(t *testing.T) {
+func TestEffortLevelString(t *testing.T) {
 	tests := []struct {
 		level    EffortLevel
 		expected string
@@ -70,19 +71,11 @@ func TestEffortManager(t *testing.T) {
 	t.Run("GetMaxSteps", func(t *testing.T) {
 		manager := NewEffortManager()
 
-		manager.SetLevel(EffortLow)
-		if manager.GetMaxSteps() != 20 {
-			t.Errorf("expected 20 steps for low, got %d", manager.GetMaxSteps())
-		}
-
-		manager.SetLevel(EffortMedium)
-		if manager.GetMaxSteps() != 50 {
-			t.Errorf("expected 50 steps for medium, got %d", manager.GetMaxSteps())
-		}
-
-		manager.SetLevel(EffortHigh)
-		if manager.GetMaxSteps() != 100 {
-			t.Errorf("expected 100 steps for high, got %d", manager.GetMaxSteps())
+		for _, level := range []EffortLevel{EffortLow, EffortMedium, EffortHigh} {
+			manager.SetLevel(level)
+			if manager.GetMaxSteps() != math.MaxInt {
+				t.Errorf("expected no default step limit for %s, got %d", level, manager.GetMaxSteps())
+			}
 		}
 	})
 

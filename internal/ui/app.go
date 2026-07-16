@@ -86,6 +86,11 @@ type App struct {
 	allProviders      []provider.Provider
 	allProviderModels map[string][]provider.ModelInfo
 
+	// /resume 会话列表选择状态
+	showResumePicker bool
+	resumeSessions   []*session.Session
+	resumeIdx        int
+
 	// 成本
 	costTotal   atomic.Uint64
 	costSession atomic.Uint64
@@ -103,8 +108,9 @@ type App struct {
 	eventLog *agent.EventLog
 
 	// Agent 活动状态
-	lastStep int
-	lastTool string
+	lastStep      int
+	lastTool      string
+	activityPhase string // "thinking" | "tool"
 
 	// 流式输出缓冲
 	streamMu    sync.Mutex
@@ -162,6 +168,13 @@ type pendingWrite struct {
 }
 
 type approvalMsg struct{}
+
+// activityMsg Agent 执行进度消息（由 Agent 回调发送）。
+type activityMsg struct {
+	step  int
+	phase string
+	tool  string
+}
 
 // confirmQuitResetMsg 3 秒后重置 Ctrl+C 二次确认状态
 type confirmQuitResetMsg struct{}
@@ -282,6 +295,13 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 
 	// 接通 EventLog，用于状态栏显示 prefix cache 命中率
 	app.eventLog = ag.EventLog()
+
+	// 注册 Agent 进度回调：将当前步骤/工具名通过 Bubble Tea 消息投递到 UI 主循环。
+	ag.SetProgressCallback(func(step int, phase, tool string) {
+		if app.program != nil {
+			app.program.Send(activityMsg{step: step, phase: phase, tool: tool})
+		}
+	})
 
 	ag.SetCostCallback(func(cost float64) {
 		app.costLast.Store(costUint64FromFloat(cost))
@@ -424,12 +444,32 @@ func (a *App) saveSession() {
 		if !hasUserMsg {
 			return
 		}
-		a.activeSess = a.sessionMgr.Create("default", a.model, a.provider.Name())
+		// 使用第一条用户消息作为会话名称（最多 40 个字符）
+		name := "default"
+		for _, m := range a.messages {
+			if m.Role == "user" {
+				name = truncateString(m.Content, 40)
+				break
+			}
+		}
+		a.activeSess = a.sessionMgr.Create(name, a.model, a.provider.Name())
 		if a.activeSess == nil {
 			// 会话创建失败（元信息持久化失败），中止本次保存以免后续追加到无效文件。
 			return
 		}
 	}
+	// 若会话名仍为默认占位，使用第一条用户消息自动重命名（启动/resume 后的首个任务）。
+	if a.activeSess.Name == "default" {
+		for _, m := range a.messages {
+			if m.Role == "user" {
+				if err := a.sessionMgr.UpdateName(a.activeSess.ID, truncateString(m.Content, 40)); err != nil {
+					log.Printf("rename session: %v", err)
+				}
+				break
+			}
+		}
+	}
+
 	// 只保存新消息（上次保存之后的）
 	for i := a.savedMsgCount; i < len(a.messages); i++ {
 		msg := a.messages[i]
@@ -482,6 +522,8 @@ func (a *App) RestoreSession(sess *session.Session) {
 	a.messages = append(a.messages, chatMessage{
 		Role: "system", Content: "会话已恢复，继续对话或输入 /help 查看命令", Timestamp: time.Now(),
 	})
+	// 已恢复的消息不需要再次追加到会话文件；新消息从当前列表末尾开始保存。
+	a.savedMsgCount = len(a.messages)
 }
 
 func (a *App) Init() tea.Cmd {
@@ -569,6 +611,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamMu.Unlock()
 		a.loading = false
 		a.cancelFunc = nil
+		a.lastStep = 0
+		a.lastTool = ""
+		a.activityPhase = ""
 		a.messages = append(a.messages, chatMessage{Role: "assistant", Content: content, Timestamp: time.Now()})
 		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
@@ -581,6 +626,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamMu.Unlock()
 		a.loading = false
 		a.cancelFunc = nil
+		a.lastStep = 0
+		a.lastTool = ""
+		a.activityPhase = ""
 		errStr := friendlyError(string(msg))
 		a.messages = append(a.messages, chatMessage{Role: "error", Content: errStr, Timestamp: time.Now()})
 		a.saveSession()
@@ -591,6 +639,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case approvalMsg:
 		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
 		a.viewport.GotoBottom()
+		return a, nil
+
+	case activityMsg:
+		a.lastStep = msg.step
+		a.activityPhase = msg.phase
+		a.lastTool = msg.tool
 		return a, nil
 
 	case confirmQuitResetMsg:
@@ -642,13 +696,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "down":
 			a.modelIdx = (a.modelIdx + 1) % len(a.modelList)
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
-			a.viewport.GotoBottom()
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
 			return a, nil
 		case "up":
 			a.modelIdx = (a.modelIdx - 1 + len(a.modelList)) % len(a.modelList)
-			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
-			a.viewport.GotoBottom()
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
 			return a, nil
 		case "enter":
 			if a.modelIdx >= 0 && a.modelIdx < len(a.modelList) {
@@ -676,6 +728,37 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "esc":
 			a.showModelPicker = false
+			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.GotoBottom()
+			return a, nil
+		}
+	}
+
+	// /resume 会话选择器模式
+	if a.showResumePicker {
+		switch key {
+		case "down":
+			a.resumeIdx = (a.resumeIdx + 1) % len(a.resumeSessions)
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			return a, nil
+		case "up":
+			a.resumeIdx = (a.resumeIdx - 1 + len(a.resumeSessions)) % len(a.resumeSessions)
+			a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
+			return a, nil
+		case "enter":
+			sess := a.resumeSessions[a.resumeIdx]
+			if err := a.sessionMgr.SetActive(sess.ID); err != nil {
+				log.Printf("activate session: %v", err)
+			}
+			a.RestoreSession(sess)
+			a.showResumePicker = false
+			a.resumeSessions = nil
+			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
+			a.viewport.GotoBottom()
+			return a, nil
+		case "esc":
+			a.showResumePicker = false
+			a.resumeSessions = nil
 			a.viewport.SetContent(a.renderMessages(a.height-8, ""))
 			a.viewport.GotoBottom()
 			return a, nil
@@ -1141,8 +1224,7 @@ func (a *App) handleModelCmd(parts []string) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.showModelPicker = true
-		a.viewport.SetContent(a.renderMessages(a.height-8, ""))
-		a.viewport.GotoBottom()
+		a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
 		return a, nil
 	}
 
@@ -1247,6 +1329,25 @@ func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
 			}
 			a.RestoreSession(sess)
 			return a, nil
+		case "rename":
+			if len(parts) < 4 {
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: "用法: /sessions rename <ID> <新名称>",
+				})
+				return a, nil
+			}
+			id := parts[2]
+			name := strings.Join(parts[3:], " ")
+			if err := a.sessionMgr.UpdateName(id, name); err != nil {
+				a.messages = append(a.messages, chatMessage{
+					Role: "system", Content: fmt.Sprintf("重命名失败: %v", err),
+				})
+				return a, nil
+			}
+			a.messages = append(a.messages, chatMessage{
+				Role: "system", Content: fmt.Sprintf("✓ 会话 %s 已重命名为: %s", id, name),
+			})
+			return a, nil
 		}
 	}
 
@@ -1274,7 +1375,7 @@ func (a *App) handleSessionsCmd(parts []string) (tea.Model, tea.Cmd) {
 }
 
 // handleResumeCmd 列出历史会话，接受 /resume <ID> 恢复指定会话。
-// 无参数时显示会话列表，有参数时恢复指定会话。
+// 无参数时進入交互式選擇模式（方向鍵選擇，Enter 確認）。
 func (a *App) handleResumeCmd(parts []string) (tea.Model, tea.Cmd) {
 	if a.sessionMgr == nil {
 		a.messages = append(a.messages, chatMessage{Role: "system", Content: "会话管理器未初始化"})
@@ -1306,21 +1407,20 @@ func (a *App) handleResumeCmd(parts []string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "历史会话 (%d):\n\n", len(sessions))
-	fmt.Fprintf(&sb, "  %-30s %-20s %8s  %s\n", "ID", "名称", "消息数", "更新时间")
-	fmt.Fprintf(&sb, "  %s\n", strings.Repeat("─", 75))
-	for _, s := range sessions {
-		marker := "  "
-		if a.activeSess != nil && a.activeSess.ID == s.ID {
-			marker = "▶ "
+	// 进入交互式选择模式
+	a.showResumePicker = true
+	a.resumeSessions = sessions
+	a.resumeIdx = 0
+	// 如果当前有活跃会话，默认选中它
+	if a.activeSess != nil {
+		for i, s := range sessions {
+			if s.ID == a.activeSess.ID {
+				a.resumeIdx = i
+				break
+			}
 		}
-		msgCount := len(s.Messages)
-		fmt.Fprintf(&sb, "%s%-30s %-20s %8d  %s\n",
-			marker, s.ID, s.Name, msgCount, s.UpdatedAt.Format("01-02 15:04"))
 	}
-	sb.WriteString("\n使用 /resume <ID> 恢复指定会话，或 /sessions switch <ID>")
-	a.messages = append(a.messages, chatMessage{Role: "system", Content: sb.String()})
+	a.viewport.SetContent(a.renderMessages(a.viewport.Height, ""))
 	return a, nil
 }
 
@@ -1419,6 +1519,11 @@ func (a *App) View() string {
 		targetVpHeight = 3
 	}
 
+	// viewport 尚未初始化时（极小终端或启动顺序差异），用当前尺寸兜底创建。
+	if a.viewport.Width == 0 {
+		a.viewport = viewport.New(a.width, targetVpHeight)
+	}
+
 	// 如果 viewport 高度需要调整，更新它并重新设置内容
 	if a.viewport.Height != targetVpHeight {
 		a.viewport.Height = targetVpHeight
@@ -1443,8 +1548,17 @@ func (a *App) View() string {
 	// Agent 活动状态
 	if a.loading {
 		activity := "思考中..."
-		if a.lastTool != "" {
-			activity = fmt.Sprintf("第 %d 步 · 🔧 %s", a.lastStep, a.lastTool)
+		if a.lastStep > 0 {
+			switch a.activityPhase {
+			case "tool":
+				if a.lastTool != "" {
+					activity = fmt.Sprintf("第 %d 步 · 🔧 %s", a.lastStep, a.lastTool)
+				} else {
+					activity = fmt.Sprintf("第 %d 步 · 执行工具", a.lastStep)
+				}
+			default:
+				activity = fmt.Sprintf("第 %d 步 · 思考中...", a.lastStep)
+			}
 		}
 		sb.WriteString(activityStyle.Render(fmt.Sprintf(" %s", activity)))
 		sb.WriteString("\n")
@@ -1521,59 +1635,16 @@ func (a *App) renderMessages(visibleLines int, streamBuf string) string {
 		}
 	}
 
-	// 模型选择器：实时渲染（不持久化到 messages）
+	// /resume 会话选择器：独占 viewport，支持方向键导航。
+	if a.showResumePicker {
+		a.renderResumePicker(&sb, visibleLines)
+	}
+
+	// 模型选择器：实时渲染（不持久化到 messages）。
+	// 当选择器打开时，独占 viewport 以最大化列表可见区域，并对长列表做窗口滚动，
+	// 保证上下键移动时当前选中项始终可见。
 	if a.showModelPicker {
-		sb.WriteString("\n")
-		sb.WriteString(systemStyle.Render("选择模型 (↑↓ 移动, Enter 确认, Esc 取消):"))
-		sb.WriteString("\n\n")
-		sb.WriteString(systemStyle.Render(fmt.Sprintf("当前: %s/%s", a.provider.Name(), a.model)))
-		sb.WriteString("\n\n")
-		// 按 provider 分组显示
-		currentProviderName := a.provider.Name()
-		// 先显示当前 provider
-		sb.WriteString(systemStyle.Render(fmt.Sprintf("[%s]", currentProviderName)))
-		sb.WriteString("\n")
-		for i, e := range a.modelList {
-			if e.ProviderName != currentProviderName {
-				continue
-			}
-			marker := "  "
-			if i == a.modelIdx {
-				marker = "▶ "
-			}
-			sb.WriteString(systemStyle.Render(fmt.Sprintf("%s%s", marker, e.ModelID)))
-			sb.WriteString("\n")
-		}
-		// 再显示其他 provider
-		for _, p := range a.allProviders {
-			if p.Name() == currentProviderName {
-				continue
-			}
-			hasModels := false
-			for _, e := range a.modelList {
-				if e.ProviderName == p.Name() {
-					hasModels = true
-					break
-				}
-			}
-			if !hasModels {
-				continue
-			}
-			sb.WriteString("\n")
-			sb.WriteString(systemStyle.Render(fmt.Sprintf("[%s]", p.Name())))
-			sb.WriteString("\n")
-			for i, e := range a.modelList {
-				if e.ProviderName != p.Name() {
-					continue
-				}
-				marker := "  "
-				if i == a.modelIdx {
-					marker = "▶ "
-				}
-				sb.WriteString(systemStyle.Render(fmt.Sprintf("%s%s", marker, e.ModelID)))
-				sb.WriteString("\n")
-			}
-		}
+		a.renderModelPicker(&sb, visibleLines)
 	}
 
 	// 流式输出缓冲
@@ -1638,6 +1709,117 @@ func (a *App) renderWelcome() string {
 	}
 
 	return sb.String()
+}
+
+// renderResumePicker 渲染 /resume 会话选择器。
+// 显示可滚动的会话列表，当前选中项高亮显示。
+func (a *App) renderResumePicker(sb *strings.Builder, visibleLines int) {
+	const headerLines = 4 // 标题 + 表头 + 分隔线 + 提示共 4 行
+	minWindowSize := 3
+
+	windowSize := visibleLines - headerLines
+	if windowSize < minWindowSize {
+		windowSize = minWindowSize
+	}
+	if windowSize > len(a.resumeSessions) {
+		windowSize = len(a.resumeSessions)
+	}
+
+	// 窗口起始索引：确保当前选中项在窗口内
+	startIdx := 0
+	if a.resumeIdx >= windowSize {
+		startIdx = a.resumeIdx - windowSize + 1
+	}
+	endIdx := startIdx + windowSize
+	if endIdx > len(a.resumeSessions) {
+		endIdx = len(a.resumeSessions)
+	}
+
+	sb.WriteString("\n")
+	sb.WriteString(systemStyle.Render("选择历史会话 (↑↓ 移动, Enter 确认, Esc 取消):"))
+	sb.WriteString("\n\n")
+	sb.WriteString(fmt.Sprintf("  %-30s %-20s %8s  %s\n", "ID", "名称", "消息数", "更新时间"))
+	sb.WriteString(fmt.Sprintf("  %s\n", strings.Repeat("─", 75)))
+
+	for i := startIdx; i < endIdx; i++ {
+		s := a.resumeSessions[i]
+		marker := "  "
+		if i == a.resumeIdx {
+			marker = "▶ "
+		}
+		msgCount := len(s.Messages)
+		line := fmt.Sprintf("%s%-30s %-20s %8d  %s",
+			marker, s.ID, s.Name, msgCount, s.UpdatedAt.Format("01-02 15:04"))
+		if i == a.resumeIdx {
+			sb.WriteString(suggestionSel.Render(line))
+		} else {
+			sb.WriteString(suggestionStyle.Render(line))
+		}
+		sb.WriteString("\n")
+	}
+
+	// 列表超长时给出滚动提示
+	if len(a.resumeSessions) > windowSize {
+		sb.WriteString("\n")
+		sb.WriteString(systemStyle.Render(fmt.Sprintf("(%d/%d) 按 ↑↓ 继续滚动", a.resumeIdx+1, len(a.resumeSessions))))
+	}
+}
+
+// renderModelPicker 渲染 /model 模型选择器。
+// 对超出可见高度的长列表做窗口切片，确保当前选中项始终可见。
+func (a *App) renderModelPicker(sb *strings.Builder, visibleLines int) {
+	const headerLines = 6 // 选择器标题、当前模型与前后空行共 6 行
+	minWindowSize := 3
+
+	windowSize := visibleLines - headerLines
+	if windowSize < minWindowSize {
+		windowSize = minWindowSize
+	}
+	if windowSize > len(a.modelList) {
+		windowSize = len(a.modelList)
+	}
+
+	// 窗口起始索引：选中项位于窗口内；若列表较短则从顶部开始。
+	startIdx := 0
+	if a.modelIdx >= windowSize {
+		startIdx = a.modelIdx - windowSize + 1
+	}
+	endIdx := startIdx + windowSize
+	if endIdx > len(a.modelList) {
+		endIdx = len(a.modelList)
+	}
+
+	sb.WriteString("\n")
+	sb.WriteString(systemStyle.Render("选择模型 (↑↓ 移动, Enter 确认, Esc 取消):"))
+	sb.WriteString("\n\n")
+	sb.WriteString(systemStyle.Render(fmt.Sprintf("当前: %s/%s", a.provider.Name(), a.model)))
+	sb.WriteString("\n\n")
+
+	// 按 provider 分组显示窗口内的模型项。
+	lastProvider := ""
+	for i := startIdx; i < endIdx; i++ {
+		e := a.modelList[i]
+		if e.ProviderName != lastProvider {
+			if lastProvider != "" {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(systemStyle.Render(fmt.Sprintf("[%s]", e.ProviderName)))
+			sb.WriteString("\n")
+			lastProvider = e.ProviderName
+		}
+		marker := "  "
+		if i == a.modelIdx {
+			marker = "▶ "
+		}
+		sb.WriteString(systemStyle.Render(fmt.Sprintf("%s%s", marker, e.ModelID)))
+		sb.WriteString("\n")
+	}
+
+	// 列表超长时给出滚动提示。
+	if len(a.modelList) > windowSize {
+		sb.WriteString("\n")
+		sb.WriteString(systemStyle.Render(fmt.Sprintf("(%d/%d) 按 ↑↓ 继续滚动", a.modelIdx+1, len(a.modelList))))
+	}
 }
 
 // newGlamourRenderer 根据终端背景色创建 glamour 渲染器。
@@ -2086,6 +2268,15 @@ func (a *App) processQueue() tea.Cmd {
 	a.viewport.GotoBottom()
 
 	return a.runAgent(ctx, next)
+}
+
+// truncateString 截断字符串，保留前 n 个字符（完整字符，不计入中文字符的多字节编码）。
+func truncateString(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n]) + "…"
 }
 
 // isValidEnvKey 校验环境变量名：仅允许字母、数字、下划线，且不能以数字开头

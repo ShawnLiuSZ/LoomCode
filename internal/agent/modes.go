@@ -62,11 +62,12 @@ type MultiAgent struct {
 	goal      *GoalStopCondition
 	skillsMgr *skills.Manager
 	memory    MemoryProvider
-	onCost    func(float64)
-	effort    *EffortManager
-	workDir   string
-	hooks     *tool.HookManager
-	eventLog  *EventLog // 共享事件日志（聚合所有内部 Agent 的缓存统计）
+	onCost     func(float64)
+	onProgress func(step int, phase, tool string)
+	effort     *EffortManager
+	workDir    string
+	hooks      *tool.HookManager
+	eventLog   *EventLog // 共享事件日志（聚合所有内部 Agent 的缓存统计）
 
 	plan string
 	spec string
@@ -169,6 +170,11 @@ func (a *MultiAgent) SetCostCallback(fn func(float64)) {
 	a.onCost = fn
 }
 
+// SetProgressCallback 设置进度回调，UI 据此显示当前步骤与工具名。
+func (a *MultiAgent) SetProgressCallback(fn func(step int, phase, tool string)) {
+	a.onProgress = fn
+}
+
 // SetCostBudget 设置成本预算上限
 func (a *MultiAgent) SetCostBudget(b float64) {
 	a.costBudget = b
@@ -246,6 +252,9 @@ func (a *MultiAgent) RunStream(ctx context.Context, task string) (<-chan string,
 	}
 	if a.onCost != nil {
 		ag.SetCostCallback(a.onCost)
+	}
+	if a.onProgress != nil {
+		ag.SetProgressCallback(a.onProgress)
 	}
 	if a.costBudget > 0 {
 		ag.SetCostBudget(a.costBudget)

@@ -161,6 +161,7 @@ func TestAgent_GuardChain(t *testing.T) {
 	r.Register(&tool.ReadFileTool{})
 
 	agent := New(p, r)
+	agent.SetMaxSteps(3) // 限制步数，避免默认无限制时陷入无限循环
 	agent.AddGuard(func(c tool.Call) error {
 		guardCalled = true
 		return nil
@@ -193,6 +194,98 @@ func TestAgent_BuildToolDefs(t *testing.T) {
 	}
 	if !names["read_file"] || !names["grep"] {
 		t.Errorf("missing tool in defs: %v", names)
+	}
+}
+
+func TestAgent_RunStream_ProgressCallback(t *testing.T) {
+	p := testutil.NewStubProvider(nil)
+	r := tool.NewRegistry()
+	agent := New(p, r)
+	agent.SetMaxSteps(2)
+
+	var got []struct {
+		step  int
+		phase string
+		tool  string
+	}
+	agent.SetProgressCallback(func(step int, phase, tool string) {
+		got = append(got, struct {
+			step  int
+			phase string
+			tool  string
+		}{step, phase, tool})
+	})
+
+	textCh, errCh := agent.RunStream(context.Background(), "test progress")
+	for range textCh {
+	}
+	for range errCh {
+	}
+
+	if len(got) == 0 {
+		t.Fatal("expected progress callbacks")
+	}
+	if got[0].step != 1 || got[0].phase != "thinking" {
+		t.Errorf("first progress = %+v, want step=1 phase=thinking", got[0])
+	}
+}
+
+// streamToolProvider 是一个返回工具调用流事件的测试 provider。
+type streamToolProvider struct {
+	testutil.StubProvider
+	callCount int
+}
+
+func (s *streamToolProvider) Stream(ctx context.Context, req *provider.ChatRequest) (<-chan provider.StreamEvent, error) {
+	s.callCount++
+	ch := make(chan provider.StreamEvent, 4)
+	if s.callCount == 1 {
+		ch <- provider.StreamEvent{Type: provider.EventToolCall, ToolCall: &provider.ToolCallDelta{Index: 0, ID: "call_1", Name: "read_file"}}
+		ch <- provider.StreamEvent{Type: provider.EventDone}
+	} else {
+		ch <- provider.StreamEvent{Type: provider.EventText, Content: "done"}
+		ch <- provider.StreamEvent{Type: provider.EventDone}
+	}
+	close(ch)
+	return ch, nil
+}
+
+func TestAgent_RunStream_ProgressCallbackToolPhase(t *testing.T) {
+	p := &streamToolProvider{StubProvider: *testutil.NewStubProvider(nil)}
+	r := tool.NewRegistry()
+	r.Register(&tool.ReadFileTool{})
+
+	agent := New(p, r)
+	agent.SetMaxSteps(3)
+
+	var got []struct {
+		step  int
+		phase string
+		tool  string
+	}
+	agent.SetProgressCallback(func(step int, phase, tool string) {
+		got = append(got, struct {
+			step  int
+			phase string
+			tool  string
+		}{step, phase, tool})
+	})
+
+	textCh, errCh := agent.RunStream(context.Background(), "read file")
+	for range textCh {
+	}
+	for range errCh {
+	}
+
+	var toolFound bool
+	for _, g := range got {
+		if g.phase == "tool" && g.tool == "read_file" {
+			toolFound = true
+			break
+		}
+	}
+	if !toolFound {
+		t.Errorf("expected a tool progress for read_file, got %+v", got)
 	}
 }
 
