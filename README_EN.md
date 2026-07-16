@@ -27,7 +27,7 @@ English | [简体中文](README.md)
 - **Edit Snapshot Safety Net** — Auto-snapshot before writes; `/rewind` restores prior state
 - **Cross-Session Context** — `list_sessions` / `read_session` tools let the agent access historical conversations
 - **Tool Call Repair** — RepairPipeline auto-fixes malformed JSON tool calls
-- **Setup Wizard** — `loomcode setup` interactively generates `loomcode.toml` + `.env`
+- **Setup Wizard** — `loomcode setup` interactively generates config + `.env`
 - **Config Schema** — `loomcode schema` outputs JSON Schema Draft 7 for editor autocomplete
 - **MCP Plugin Protocol** — stdio + HTTP, plug in external tools
 - **Long-Term Memory** — SQLite FTS5; `/remember` writes project knowledge and user preferences
@@ -74,7 +74,7 @@ make build
 loomcode setup
 ```
 
-Five-step wizard: choose provider → enter API key → pick model → generate `loomcode.toml` + `.env` → emit JSON Schema.
+Five-step wizard: choose provider → enter API key → pick model → generate `~/.loomcode/models.toml` (TOML) + `.env` → emit JSON Schema. (For manual setup, `~/.loomcode/models.json` is recommended.)
 
 ### Launch TUI
 
@@ -96,25 +96,43 @@ echo "Explain this code" | ./bin/loomcode run
 
 ```bash
 loomcode schema > ~/.loomcode/schema.json
-# Load this file in your editor (VS Code / Vim / etc.) for loomcode.toml autocomplete & validation
+# Load this file in your editor (VS Code / Vim / etc.) for config autocomplete & validation
 ```
 
 ---
 
 ## CLI Commands
 
+### Subcommands
+
 | Command | Description |
 |---------|-------------|
-| `loomcode` | Start interactive TUI (default) |
-| `loomcode run <task>` | One-shot task |
-| `loomcode setup` | Interactive setup wizard |
+| `loomcode` / `loomcode chat` / `loomcode tui` | Start interactive TUI (default) |
+| `loomcode run <task>` | One-shot task; also accepts task content from stdin |
+| `loomcode setup` | Interactive setup wizard; generates `~/.loomcode/models.toml` + `.env` |
 | `loomcode schema` | Output JSON Schema for config validation |
-| `loomcode dashboard [addr]` | Launch web dashboard (default :8080) |
-| `loomcode --provider <name>` | Specify provider (deepseek/mimo/openai) |
-| `loomcode --model <id>` | Specify model |
-| `loomcode --session <id>` | Resume a session |
-| `loomcode --env-file <path>` | Load custom .env |
-| `loomcode --version` | Show version |
+| `loomcode dashboard [addr]` | Launch web dashboard (default `:8080`) |
+
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--provider <name>` | Specify provider (`deepseek` / `mimo` / `openai`) |
+| `--model <id>` | Specify model ID |
+| `--config <path>` | Specify config file path |
+| `--env-file <path>` | Load custom `.env` |
+| `--session <id>` | Resume a session |
+| `--version` | Show version |
+
+### Examples
+
+```bash
+loomcode                                  # Start TUI
+loomcode run "explain this code"          # One-shot task
+loomcode --provider deepseek --model deepseek-v4-pro
+loomcode --session session_xxxxxxxx       # Resume a session
+loomcode dashboard :9090                  # Launch dashboard on port 9090
+```
 
 ---
 
@@ -123,9 +141,9 @@ loomcode schema > ~/.loomcode/schema.json
 | Key | Action |
 |-----|--------|
 | Type text | Send task to AI |
-| Tab | Switch Agent mode (build/plan/compose/max) |
+| Tab | Switch Agent mode (build / plan / compose / max) |
 | `/` then Tab | Command autocomplete |
-| ↑↓ / Enter / Esc | Interactive pickers (model selection, etc.) |
+| ↑↓ / Enter / Esc | Interactive pickers (model selection, session resume, etc.) |
 | Shift+Enter | Newline |
 | Ctrl+C twice | Quit (second confirmation within 3s) |
 
@@ -135,26 +153,37 @@ loomcode schema > ~/.loomcode/schema.json
 |---------|-------------|
 | `/help` | Show help |
 | `/mode` | Show current mode and model |
-| `/build` `/plan` `/compose` `/max` | Switch Agent mode |
+| `/build` / `/plan` / `/compose` / `/max` | Switch Agent mode |
+| `/goal` | View current stop condition |
+| `/goal "<condition>"` | Set stop condition |
+| `/goal clear` | Clear stop condition |
+| `/steps` | View current max steps |
+| `/steps <n>` | Set max steps |
 | `/model` | Interactive model picker (↑↓ to select, Enter to confirm) |
 | `/model <name>` | Switch model directly |
-| `/rewind` | List recent edit snapshots |
-| `/rewind last` | Restore to the state before the last edit |
-| `/rewind <id>` | Restore a snapshot by ID |
 | `/skills` | Show built-in tools and external skills |
+| `/clear` | Clear chat history |
+| `/cost` | Show cost stats |
+| `/budget` | View current budget |
+| `/budget <amount>` | Set session budget cap |
+| `/budget clear` | Clear budget |
 | `/env` | View environment variables |
 | `/env set <KEY> <VALUE>` | Set an environment variable |
 | `/env unset <KEY>` | Remove an environment variable |
-| `/goal` | Set / view / clear stop condition |
+| `/env reload` | Reload environment variables |
 | `/sessions` | List sessions |
 | `/sessions new <name>` | Create a new session |
-| `/sessions switch <ID>` | Switch session |
-| `/remember <text>` | Write to long-term memory (project knowledge / user preferences) |
-| `/cost` | Show cost stats |
-| `/budget <amount>` | Set session budget cap |
+| `/sessions switch <ID>` | Switch to a session |
+| `/sessions rename <ID> <new-name>` | Rename a session |
+| `/resume` | List and resume historical sessions |
+| `/resume <ID>` | Resume a specific session |
 | `/compact` | Compact context |
-| `/clear` | Clear chat history |
-| `/quit` | Quit |
+| `/queue` | View task queue |
+| `/remember <text>` | Write to long-term memory (project knowledge / user preferences) |
+| `/rewind` | List recent edit snapshots |
+| `/rewind last` | Restore to the state before the last edit |
+| `/rewind <id>` | Restore a snapshot by ID |
+| `/quit` / `/exit` | Quit |
 
 ---
 
@@ -194,33 +223,130 @@ This lets the agent "remember" prior discussions, conventions, and decisions, av
 
 ### Config File
 
-`loomcode.toml` (project root) or `~/.loomcode/loomcode.toml` (global). See [`loomcode.example.toml`](loomcode.example.toml).
+Provider configs support **TOML** and **JSON**. Recommended locations:
 
-```toml
-default_provider = "deepseek"
+- `~/.loomcode/models.json` (global, JSON, recommended)
+- `~/.loomcode/models.toml` (global, TOML)
+- `./models.json` / `./models.toml` (project-level)
 
-[[providers]]
-name          = "deepseek"
-display_name  = "DeepSeek"
-kind          = "deepseek"
-base_url      = "https://api.deepseek.com"
-api_key_env   = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
+Legacy paths (`loomcode.toml`, `~/.loomcode/loomcode.toml`, `~/.loomcode/config.toml`) remain compatible but are deprecated.
 
-  [[providers.models]]
-  id             = "deepseek-v4-flash"
-  name           = "DeepSeek V4 Flash"
-  context_window = 131072
+See [`models.example.json`](models.example.json) for a JSON example and [`loomcode.example.toml`](loomcode.example.toml) for a TOML example.
 
-  [providers.models.cost]
-  input        = 0.14
-  cached_input = 0.014
-  output       = 0.28
-
-  [providers.models.capabilities]
-  tool_call    = true
-  prefix_cache = true
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072,
+          "cost": {
+            "input": 0.14,
+            "cached_input": 0.014,
+            "output": 0.28
+          },
+          "capabilities": {
+            "tool_call": true,
+            "prefix_cache": true
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
+
+### Supported Provider Types
+
+| `kind` | Provider | Authentication | Notes |
+|--------|----------|----------------|-------|
+| `deepseek` | DeepSeek | API Key (`Authorization: Bearer`) | Supports reasoning_content, prefix cache, tool-call repair |
+| `mimo` | Xiaomi MiMo | API Key (`Authorization: Bearer`) | Supports voice, reasoning, prefix cache; offers both Pay-As-You-Go API and Token Plan |
+| `openai` | OpenAI and any OpenAI-compatible provider | API Key | Generic adapter for GPT series, local compatible services, etc. |
+
+For custom OpenAI-compatible providers, set `kind` to `openai` and provide the correct `base_url`.
+
+### Xiaomi MiMo Connection Modes
+
+MiMo currently only supports API Key authentication (OAuth is not yet implemented). It provides two connection modes; use the corresponding `base_url` and `api_key_env`:
+
+| Mode | Description | `base_url` | API Key format |
+|------|-------------|------------|----------------|
+| Pay-As-You-Go API | Billed by actual usage, suitable for light use | `https://api.xiaomimimo.com/v1` | `sk-xxxxx` |
+| Token Plan | Fixed subscription with limited calls in the package | `https://token-plan-cn.xiaomimimo.com/v1` | `tp-xxxxx` |
+
+Pay-As-You-Go example:
+
+```json
+{
+  "providers": [
+    {
+      "name": "mimo",
+      "kind": "mimo",
+      "base_url": "https://api.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "default_model": "mimo-v2.5-pro"
+    }
+  ]
+}
+```
+
+Token Plan example:
+
+```json
+{
+  "providers": [
+    {
+      "name": "mimo-token-plan",
+      "kind": "mimo",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_TOKEN_PLAN_KEY",
+      "default_model": "mimo-v2.5-pro"
+    }
+  ]
+}
+```
+
+> Tip: You can declare both modes as separate providers in the config and switch between them with `/model`.
+
+### Offline Token Counting
+
+The DeepSeek provider includes a pure-Go DeepSeek V3 tokenizer. It counts prompt tokens locally for accurate context-window estimation and compaction, with no Python or `transformers` dependency.
+
+```bash
+# Use the built-in tokenizer
+loomcode --provider deepseek
+
+# Use a custom tokenizer.json (optional)
+LOOMCODE_TOKENIZER_PATH=/path/to/tokenizer.json loomcode --provider deepseek
+```
+
+Other providers (MiMo / OpenAI) currently fall back to a rough character-based estimate and can be extended later.
+
+### Model Configuration Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Model ID used in API requests, e.g. `deepseek-v4-pro` |
+| `name` | Yes | Display name |
+| `context_window` | Yes | Context window size in tokens |
+| `cost.input` | No | Input price per million tokens |
+| `cost.cached_input` | No | Cache-hit input price per million tokens |
+| `cost.output` | No | Output price per million tokens |
+| `capabilities.reasoning` | No | Whether reasoning/thinking mode is supported |
+| `capabilities.tool_call` | No | Whether function/tool calls are supported |
+| `capabilities.prefix_cache` | No | Whether prefix caching is supported |
+| `capabilities.vision` | No | Whether vision input is supported |
+| `capabilities.voice` | No | Whether voice input is supported |
 
 ### JSON Schema Validation
 
@@ -228,13 +354,45 @@ default_model = "deepseek-v4-flash"
 loomcode schema > ~/.loomcode/schema.json
 ```
 
-In VS Code, add this to the top of `loomcode.toml`:
+In VS Code, add this to the top of your TOML config:
 
 ```toml
 #:schema ~/.loomcode/schema.json
 ```
 
-You'll get field autocomplete, type checks, and enum hints.
+You'll get field autocomplete, type checks, and enum hints. JSON configs can also be associated with `schema.json` in your editor.
+
+### API Key
+
+The config file uses `api_key_env` to reference an environment variable. You can also set `api_key` directly, which takes precedence over `api_key_env`:
+
+```json
+{
+  "providers": [
+    {
+      "name": "deepseek",
+      "api_key": "sk-xxxxxxxxxxxxxxxx"
+    }
+  ]
+}
+```
+
+> Security recommendation: prefer `api_key_env` + `.env` to avoid committing plaintext secrets.
+
+### Switching Models
+
+In the TUI:
+
+```bash
+/model           # interactive picker (only configured models are listed)
+/model <id>      # switch directly to a configured model
+```
+
+When launching from CLI:
+
+```bash
+loomcode --model deepseek-v4-pro
+```
 
 ### Environment Variables
 
@@ -258,7 +416,7 @@ OPENAI_API_KEY=
 
 ## MCP Plugins
 
-Configure MCP servers in `loomcode.toml` to extend tool capabilities:
+Configure MCP servers in your config file (`~/.loomcode/models.json` recommended, or `~/.loomcode/models.toml` / project-level equivalents) to extend tool capabilities:
 
 ```toml
 # stdio mode

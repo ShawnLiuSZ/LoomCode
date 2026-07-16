@@ -7,14 +7,38 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"sync"
 	"time"
 	"unicode/utf8"
 
 	"github.com/ShawnLiuSZ/loomcode/internal/consts"
 	"github.com/ShawnLiuSZ/loomcode/internal/provider"
+	"github.com/ShawnLiuSZ/loomcode/internal/tokenizer/deepseek"
 )
 
 const kind = "deepseek"
+
+var (
+	// tokenizerOnce lazy-loads the DeepSeek offline tokenizer.
+	tokenizerOnce sync.Once
+	tokenizerInst *deepseek.Tokenizer
+	tokenizerErr  error
+)
+
+// loadTokenizer returns the shared offline DeepSeek tokenizer.
+// By default it uses the tokenizer.json embedded at build time.
+// Set LOOMCODE_TOKENIZER_PATH to override with an external tokenizer.json.
+func loadTokenizer() (*deepseek.Tokenizer, error) {
+	tokenizerOnce.Do(func() {
+		if path := os.Getenv("LOOMCODE_TOKENIZER_PATH"); path != "" {
+			tokenizerInst, tokenizerErr = deepseek.NewTokenizerFromFile(path)
+			return
+		}
+		tokenizerInst, tokenizerErr = deepseek.NewDefaultTokenizer()
+	})
+	return tokenizerInst, tokenizerErr
+}
 
 // Adapter DeepSeek 适配器
 type Adapter struct{}
@@ -51,12 +75,15 @@ func (a *Adapter) Create(cfg provider.Config) (provider.Provider, error) {
 		MaxToolCallsPerRound: 16,
 	}
 
+	tok, _ := loadTokenizer()
+
 	return &DeepSeekProvider{
-		name:   cfg.Name,
-		models: models,
-		caps:   caps,
-		client: provider.NewRetryableClient(consts.DefaultHTTPTimeout),
-		cfg:    cfg,
+		name:      cfg.Name,
+		models:    models,
+		caps:      caps,
+		client:    provider.NewRetryableClient(consts.DefaultHTTPTimeout),
+		cfg:       cfg,
+		tokenizer: tok,
 	}, nil
 }
 
@@ -72,16 +99,26 @@ func (a *Adapter) ValidateConfig(cfg provider.Config) error {
 
 // DeepSeekProvider DeepSeek API Provider
 type DeepSeekProvider struct {
-	name   string
-	models []provider.ModelInfo
-	caps   provider.Capabilities
-	client *provider.RetryableHTTPClient
-	cfg    provider.Config
+	name      string
+	models    []provider.ModelInfo
+	caps      provider.Capabilities
+	client    *provider.RetryableHTTPClient
+	cfg       provider.Config
+	tokenizer *deepseek.Tokenizer
 }
 
 func (p *DeepSeekProvider) Name() string                        { return p.name }
 func (p *DeepSeekProvider) Models() []provider.ModelInfo        { return p.models }
 func (p *DeepSeekProvider) Capabilities() provider.Capabilities { return p.caps }
+
+// CountTokens counts tokens using the offline DeepSeek V3 tokenizer.
+// It returns an error if the tokenizer files are not available.
+func (p *DeepSeekProvider) CountTokens(text string) (int, error) {
+	if p.tokenizer == nil {
+		return 0, fmt.Errorf("deepseek tokenizer not available")
+	}
+	return p.tokenizer.Count(text), nil
+}
 
 func (p *DeepSeekProvider) Cost(modelID string, usage provider.Usage) provider.Cost {
 	var modelCost provider.ModelCost

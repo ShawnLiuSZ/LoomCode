@@ -27,7 +27,7 @@
 - **编辑快照安全网** — 写文件前自动快照，`/rewind` 一键回退
 - **跨会话上下文** — `list_sessions` / `read_session` 工具，让 Agent 访问历史会话
 - **工具调用修复** — RepairPipeline 自动修复 JSON 格式错误的工具调用
-- **配置向导** — `loomcode setup` 交互式生成 `loomcode.toml` + `.env`
+- **配置向导** — `loomcode setup` 交互式生成配置 + `.env`
 - **配置 Schema** — `loomcode schema` 输出 JSON Schema Draft 7，支持编辑器自动补全
 - **MCP 插件协议** — stdio + HTTP 双通道，接入外部工具
 - **长期记忆** — SQLite FTS5，`/remember` 写入项目知识与用户偏好
@@ -74,7 +74,7 @@ make build
 loomcode setup
 ```
 
-五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `loomcode.toml` + `.env` → 输出 JSON Schema。
+五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `~/.loomcode/models.toml` + `.env` → 输出 JSON Schema。（手动配置推荐使用 `~/.loomcode/models.json`）
 
 ### 启动 TUI
 
@@ -103,7 +103,7 @@ loomcode schema > ~/.loomcode/schema.json
 
 ## 接入大模型
 
-LoomCode 通过 Provider 适配器接入大模型。系统启动或执行 `/model` 切换时，**只读取已在 `loomcode.toml` 中配置的模型**；未配置的模型不会出现在可选列表中。接入模型即是把它声明到配置文件里。
+LoomCode 通过 Provider 适配器接入大模型。系统启动或执行 `/model` 切换时，**只读取已在配置文件中配置的模型**；未配置的模型不会出现在可选列表中。接入模型即是把它声明到配置文件里。
 
 ### 方式一：交互式配置向导（推荐）
 
@@ -116,45 +116,54 @@ loomcode setup
 1. 选择内置 Provider（DeepSeek / MiMo / OpenAI）或自定义 OpenAI 兼容厂商
 2. 输入 API Key
 3. 选择默认模型
-4. 自动写入 `~/.loomcode/loomcode.toml` 和 `~/.loomcode/.env`
+4. 自动写入 `~/.loomcode/models.toml`（TOML）和 `~/.loomcode/.env`
 5. 生成 JSON Schema 供编辑器补全
 
 完成后再运行 `loomcode chat` 或 `loomcode run` 即可使用已配置的模型。
 
 ### 方式二：手动编辑配置
 
-配置文件位置（按优先级）：
+配置文件支持 **TOML** 与 **JSON** 两种格式，位置按以下优先级查找：
 
-1. `./loomcode.toml`（项目级，最高优先级）
-2. `~/.loomcode/loomcode.toml`（全局用户配置）
-3. `~/.loomcode/config.toml`（向后兼容）
+1. `--config <path>`（CLI 参数，最高优先级）
+2. `./loomcode.toml`（项目级，已弃用，向后兼容）
+3. `~/.loomcode/models.json`（全局用户配置，JSON，推荐）
+4. `~/.loomcode/models.toml`（全局用户配置，TOML）
+5. `./models.json` / `./models.toml`（项目级）
+6. `~/.loomcode/loomcode.toml` / `~/.loomcode/config.toml`（已弃用，向后兼容）
 
-完整示例见 [`loomcode.example.toml`](loomcode.example.toml)。最小可运行配置：
+JSON 完整示例见 [`models.example.json`](models.example.json)，TOML 完整示例见 [`loomcode.example.toml`](loomcode.example.toml)。最小可运行配置（JSON）：
 
-```toml
-default_provider = "deepseek"
-
-[[providers]]
-name          = "deepseek"
-display_name  = "DeepSeek"
-kind          = "deepseek"
-base_url      = "https://api.deepseek.com"
-api_key_env   = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
-
-  [[providers.models]]
-  id             = "deepseek-v4-flash"
-  name           = "DeepSeek V4 Flash"
-  context_window = 131072
-
-  [providers.models.cost]
-  input        = 0.14
-  cached_input = 0.014
-  output       = 0.28
-
-  [providers.models.capabilities]
-  tool_call    = true
-  prefix_cache = true
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072,
+          "cost": {
+            "input": 0.14,
+            "cached_input": 0.014,
+            "output": 0.28
+          },
+          "capabilities": {
+            "tool_call": true,
+            "prefix_cache": true
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ### 支持的 Provider 类型
@@ -162,10 +171,67 @@ default_model = "deepseek-v4-flash"
 | `kind` | 厂商 | 认证方式 | 说明 |
 |--------|------|----------|------|
 | `deepseek` | DeepSeek | API Key (`Authorization: Bearer`) | 支持 reasoning_content、prefix cache、工具调用修复 |
-| `mimo` | 小米 MiMo | API Key / OAuth | 支持语音、推理、prefix cache |
+| `mimo` | 小米 MiMo | API Key (`Authorization: Bearer`) | 支持语音、推理、prefix cache；支持「按量付费 API」与「Token Plan」两种接入方式 |
 | `openai` | OpenAI 及任意 OpenAI 兼容厂商 | API Key | 通用适配，可用于 GPT 系列、本地兼容服务等 |
 
 自定义 OpenAI 兼容厂商时，只需把 `kind` 设为 `openai` 并填写正确的 `base_url`。
+
+### 小米 MiMo 接入方式
+
+MiMo 当前仅支持 API Key 接入（OAuth 暂未实现），提供两种接入方式，配置时只需把对应的 `base_url` 和 `api_key_env` 填对即可：
+
+| 接入方式 | 说明 | `base_url` | API Key 格式 |
+|----------|------|------------|--------------|
+| 按量付费 API | 按实际使用量计费，适合轻度使用 | `https://api.xiaomimimo.com/v1` | `sk-xxxxx` |
+| Token Plan | 固定订阅费，按套餐限量调用 | `https://token-plan-cn.xiaomimimo.com/v1` | `tp-xxxxx` |
+
+按量付费示例：
+
+```json
+{
+  "providers": [
+    {
+      "name": "mimo",
+      "kind": "mimo",
+      "base_url": "https://api.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "default_model": "mimo-v2.5-pro"
+    }
+  ]
+}
+```
+
+Token Plan 示例：
+
+```json
+{
+  "providers": [
+    {
+      "name": "mimo-token-plan",
+      "kind": "mimo",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_TOKEN_PLAN_KEY",
+      "default_model": "mimo-v2.5-pro"
+    }
+  ]
+}
+```
+
+> 提示：两种接入方式可以同时在配置中声明为两个 provider，启动后通过 `/model` 切换使用。
+
+### 离线 Token 计数
+
+DeepSeek provider 内置了纯 Go 实现的 DeepSeek V3 tokenizer，可在本地精确计算 prompt token 数，用于上下文窗口预估和压缩策略。无需 Python 或 `transformers` 依赖。
+
+```bash
+# 默认使用内置 tokenizer
+loomcode --provider deepseek
+
+# 使用自定义 tokenizer.json（可选）
+LOOMCODE_TOKENIZER_PATH=/path/to/tokenizer.json loomcode --provider deepseek
+```
+
+其他 provider（MiMo / OpenAI）暂时使用字符数粗略估算，后续可按需扩展。
 
 ### 模型配置字段
 
@@ -183,9 +249,22 @@ default_model = "deepseek-v4-flash"
 | `capabilities.vision` | 否 | 是否支持视觉输入 |
 | `capabilities.voice` | 否 | 是否支持语音输入 |
 
-### API Key 环境变量
+### API Key
 
-配置文件中 `api_key_env` 指定环境变量名，实际密钥从 `.env` 或系统环境变量读取：
+配置文件中 `api_key_env` 指定环境变量名，实际密钥从 `.env` 或系统环境变量读取。也可以直接写 `api_key`（优先级高于 `api_key_env`）：
+
+```json
+{
+  "providers": [
+    {
+      "name": "deepseek",
+      "api_key": "sk-xxxxxxxxxxxxxxxx"
+    }
+  ]
+}
+```
+
+> 安全建议：优先使用 `api_key_env` + `.env`，避免把密钥明文写入配置文件。
 
 ```bash
 # ~/.loomcode/.env 或 ./.env
@@ -222,18 +301,36 @@ loomcode --model deepseek-v4-pro
 
 ## CLI 命令
 
+### 子命令
+
 | 命令 | 说明 |
 |------|------|
-| `loomcode` | 启动交互式 TUI（默认） |
-| `loomcode run <task>` | 单次任务 |
-| `loomcode setup` | 交互式配置向导 |
+| `loomcode` / `loomcode chat` / `loomcode tui` | 启动交互式 TUI（默认） |
+| `loomcode run <task>` | 单次任务，支持从 stdin 读取任务内容 |
+| `loomcode setup` | 交互式配置向导，生成 `~/.loomcode/models.toml` + `.env` |
 | `loomcode schema` | 输出 JSON Schema（配置校验） |
-| `loomcode dashboard [addr]` | 启动 Web Dashboard（默认 :8080） |
-| `loomcode --provider <name>` | 指定 Provider（deepseek/mimo/openai） |
-| `loomcode --model <id>` | 指定模型 |
-| `loomcode --session <id>` | 恢复历史会话 |
-| `loomcode --env-file <path>` | 加载自定义 .env |
-| `loomcode --version` | 显示版本 |
+| `loomcode dashboard [addr]` | 启动 Web Dashboard（默认 `:8080`） |
+
+### 全局选项
+
+| 选项 | 说明 |
+|------|------|
+| `--provider <name>` | 指定 Provider（`deepseek` / `mimo` / `openai`） |
+| `--model <id>` | 指定模型 ID |
+| `--config <path>` | 指定配置文件路径 |
+| `--env-file <path>` | 加载自定义 `.env` |
+| `--session <id>` | 恢复历史会话 |
+| `--version` | 显示版本 |
+
+### 示例
+
+```bash
+loomcode                                  # 启动 TUI
+loomcode run "解释这段代码"               # 单次任务
+loomcode --provider deepseek --model deepseek-v4-pro
+loomcode --session session_xxxxxxxx       # 恢复会话
+loomcode dashboard :9090                  # 在 9090 端口启动 Dashboard
+```
 
 ---
 
@@ -242,9 +339,9 @@ loomcode --model deepseek-v4-pro
 | 操作 | 说明 |
 |------|------|
 | 直接输入文字 | 发送任务给 AI |
-| Tab | 切换 Agent 模式（build/plan/compose/max） |
+| Tab | 切换 Agent 模式（build / plan / compose / max） |
 | 输入 `/` 后 Tab | 命令自动补全 |
-| ↑↓ / Enter / Esc | 交互式选择器（模型选择等） |
+| ↑↓ / Enter / Esc | 交互式选择器（模型选择、会话恢复等） |
 | Shift+Enter | 换行 |
 | Ctrl+C 两次 | 退出（3 秒内二次确认） |
 
@@ -254,26 +351,37 @@ loomcode --model deepseek-v4-pro
 |------|------|
 | `/help` | 显示帮助 |
 | `/mode` | 显示当前模式和模型 |
-| `/build` `/plan` `/compose` `/max` | 切换 Agent 模式 |
+| `/build` / `/plan` / `/compose` / `/max` | 切换 Agent 模式 |
+| `/goal` | 查看当前停止条件 |
+| `/goal "<条件>"` | 设置停止条件 |
+| `/goal clear` | 清除停止条件 |
+| `/steps` | 查看当前最大步数 |
+| `/steps <n>` | 设置最大步数 |
 | `/model` | 交互式选择模型（↑↓ 选择，Enter 确认） |
 | `/model <name>` | 直接切换模型 |
-| `/rewind` | 列出最近的编辑快照 |
-| `/rewind last` | 回退到最近一次编辑前的状态 |
-| `/rewind <id>` | 按 ID 回退到指定快照 |
 | `/skills` | 显示内置工具和外部 skills |
+| `/clear` | 清空聊天记录 |
+| `/cost` | 显示成本统计 |
+| `/budget` | 查看当前预算 |
+| `/budget <amount>` | 设置会话预算上限 |
+| `/budget clear` | 清除预算 |
 | `/env` | 查看环境变量 |
 | `/env set <KEY> <VALUE>` | 设置环境变量 |
 | `/env unset <KEY>` | 移除环境变量 |
-| `/goal` | 设置/查看/清除停止条件 |
-| `/sessions` | 查看会话列表 |
+| `/env reload` | 重新加载环境变量 |
+| `/sessions` | 列出会话 |
 | `/sessions new <name>` | 创建新会话 |
-| `/sessions switch <ID>` | 切换会话 |
-| `/remember <text>` | 写入长期记忆（项目知识/用户偏好） |
-| `/cost` | 显示成本统计 |
-| `/budget <amount>` | 设置会话预算上限 |
+| `/sessions switch <ID>` | 切换到指定会话 |
+| `/sessions rename <ID> <新名称>` | 重命名会话 |
+| `/resume` | 列出并恢复历史会话 |
+| `/resume <ID>` | 恢复指定会话 |
 | `/compact` | 压缩上下文 |
-| `/clear` | 清空聊天记录 |
-| `/quit` | 退出 |
+| `/queue` | 查看任务队列 |
+| `/remember <text>` | 写入长期记忆（项目知识 / 用户偏好） |
+| `/rewind` | 列出最近的编辑快照 |
+| `/rewind last` | 回退到最近一次编辑前的状态 |
+| `/rewind <id>` | 按 ID 回退到指定快照 |
+| `/quit` / `/exit` | 退出 |
 
 ---
 
@@ -313,32 +421,40 @@ Agent 在执行任务时可调用以下工具访问历史会话：
 
 ### 配置文件
 
-`loomcode.toml`（项目根目录）或 `~/.loomcode/loomcode.toml`（全局）。示例见 [`loomcode.example.toml`](loomcode.example.toml)。
+推荐将 provider 配置放在 `~/.loomcode/models.json`（JSON）；也支持 `~/.loomcode/models.toml`（TOML）。项目级可使用 `./models.json` / `./models.toml`。旧的 `loomcode.toml` / `~/.loomcode/loomcode.toml` 仍兼容，但已弃用。
 
-```toml
-default_provider = "deepseek"
+JSON 示例见 [`models.example.json`](models.example.json)，TOML 示例见 [`loomcode.example.toml`](loomcode.example.toml)。
 
-[[providers]]
-name          = "deepseek"
-display_name  = "DeepSeek"
-kind          = "deepseek"
-base_url      = "https://api.deepseek.com"
-api_key_env   = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
-
-  [[providers.models]]
-  id             = "deepseek-v4-flash"
-  name           = "DeepSeek V4 Flash"
-  context_window = 131072
-
-  [providers.models.cost]
-  input        = 0.14
-  cached_input = 0.014
-  output       = 0.28
-
-  [providers.models.capabilities]
-  tool_call    = true
-  prefix_cache = true
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072,
+          "cost": {
+            "input": 0.14,
+            "cached_input": 0.014,
+            "output": 0.28
+          },
+          "capabilities": {
+            "tool_call": true,
+            "prefix_cache": true
+          }
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ### JSON Schema 校验
@@ -347,13 +463,13 @@ default_model = "deepseek-v4-flash"
 loomcode schema > ~/.loomcode/schema.json
 ```
 
-VS Code 在 `loomcode.toml` 顶部添加：
+VS Code 在 TOML 配置顶部添加：
 
 ```toml
 #:schema ~/.loomcode/schema.json
 ```
 
-即可获得字段补全、类型校验、枚举提示。
+即可获得字段补全、类型校验、枚举提示。JSON 配置同理可通过编辑器关联 `schema.json`。
 
 ### 环境变量
 
@@ -377,7 +493,7 @@ OPENAI_API_KEY=
 
 ## MCP 插件
 
-在 `loomcode.toml` 中配置 MCP 服务器，扩展工具能力：
+在配置文件（推荐 `~/.loomcode/models.json`，也支持 `~/.loomcode/models.toml` 或项目级对应文件）中配置 MCP 服务器，扩展工具能力：
 
 ```toml
 # stdio 模式
