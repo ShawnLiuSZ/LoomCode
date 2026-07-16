@@ -187,6 +187,12 @@ type approvalMsg struct{}
 
 type outsideAccessMsg struct{}
 
+// costBudgetExceededMsg 预算超支消息，由 Agent goroutine 通过 program.Send 路由到主 goroutine。
+type costBudgetExceededMsg struct {
+	sessionCost float64
+	budget      float64
+}
+
 // activityMsg Agent 执行进度消息（由 Agent 回调发送）。
 type activityMsg struct {
 	step  int
@@ -340,10 +346,10 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 		sessionCost := costFloatFromUint64(app.costSession.Load())
 		if app.costBudget > 0 && sessionCost >= app.costBudget && app.cancelFunc != nil {
 			app.cancelFunc()
-			app.messages = append(app.messages, chatMessage{
-				Role:    "system",
-				Content: fmt.Sprintf("预算已用尽 ($%.4f/$%.4f)。使用 /budget <amount> 调整预算。", sessionCost, app.costBudget),
-			})
+			// 在 Agent goroutine 中不能直接写 a.messages，通过 program.Send 路由到 BubbleTea 主 goroutine。
+			if app.program != nil {
+				app.program.Send(costBudgetExceededMsg{sessionCost: sessionCost, budget: app.costBudget})
+			}
 		}
 	})
 
@@ -701,6 +707,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case outsideAccessMsg:
+		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
+		a.viewport.GotoBottom()
+		return a, nil
+
+	case costBudgetExceededMsg:
+		a.messages = append(a.messages, chatMessage{
+			Role:    "system",
+			Content: fmt.Sprintf("预算已用尽 ($%.4f/$%.4f)。使用 /budget <amount> 调整预算。", msg.sessionCost, msg.budget),
+		})
 		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, nil

@@ -15,6 +15,10 @@ import (
 const maxSubAgentDepth = 3
 const maxAgents = 100
 
+// maxSubAgentLifetime 是单个子 Agent 的最大生命周期。
+// 当 WaitTimeout 的 cancel 因底层网络操作不响应而失效时，硬 deadline 作为最后防线，避免 goroutine 永久泄漏。
+const maxSubAgentLifetime = 30 * time.Minute
+
 // SubAgent 子 Agent
 type SubAgent struct {
 	ID       string
@@ -244,7 +248,11 @@ func (sa *SubAgent) Run(task string) {
 	go func() {
 		defer close(sa.done)
 
-		result, err := sa.agent.Run(sa.ctx, task)
+		// 为底层 HTTP 调用设置硬 deadline，作为 WaitTimeout cancel 不响应时的最后防线（C4）。
+		runCtx, runCancel := context.WithDeadline(sa.ctx, time.Now().Add(maxSubAgentLifetime))
+		defer runCancel()
+
+		result, err := sa.agent.Run(runCtx, task)
 
 		sa.mu.Lock()
 		defer sa.mu.Unlock()

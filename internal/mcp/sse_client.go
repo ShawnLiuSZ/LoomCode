@@ -189,8 +189,11 @@ func (c *SSEClient) listenSSE(ctx context.Context, endpoint string) {
 			continue
 		}
 
-		if c.sessionID != "" {
-			req.Header.Set("Mcp-Session-Id", c.sessionID)
+		c.mu.Lock()
+		sid := c.sessionID
+		c.mu.Unlock()
+		if sid != "" {
+			req.Header.Set("Mcp-Session-Id", sid)
 		}
 
 		resp, err := c.sseClient.Do(req)
@@ -291,7 +294,11 @@ func (c *SSEClient) readSSEStream(ctx context.Context, body io.Reader) {
 		if strings.HasPrefix(line, "event:") {
 			event.Event = trimSSEField(line, "event:")
 		} else if strings.HasPrefix(line, "data:") {
-			event.Data = trimSSEField(line, "data:")
+			d := trimSSEField(line, "data:")
+			if event.Data != "" {
+				event.Data += "\n"
+			}
+			event.Data += d
 		} else if strings.HasPrefix(line, "id:") {
 			event.ID = trimSSEField(line, "id:")
 		} else if line == "" {
