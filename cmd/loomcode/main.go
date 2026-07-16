@@ -41,7 +41,6 @@ var (
 	flagProvider = flag.String("provider", "", "Provider name (e.g. deepseek, openai)")
 	flagModel    = flag.String("model", "", "Model ID (e.g. deepseek-v4-flash)")
 	flagConfig   = flag.String("config", "", "Path to config file")
-	flagEnvFile  = flag.String("env-file", "", "Path to .env file to load")
 	flagSession  = flag.String("session", "", "Session ID to resume")
 	flagVersion  = flag.Bool("version", false, "Show version")
 )
@@ -52,9 +51,6 @@ func main() {
 
 	// 注入版本号到 UI 包
 	ui.Version = version
-
-	// 加载 .env 文件
-	loadEnvFiles()
 
 	// 注册任务存储
 	tool.SetTaskStore(tool.NewTaskStore())
@@ -624,22 +620,6 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  loomcode dashboard :9090                    Dashboard on port 9090\n\n")
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
-}
-
-// loadEnvFiles 按优先级加载环境变量文件
-func loadEnvFiles() {
-	// 1. 项目目录下的 .env 文件
-	cwd, _ := os.Getwd()
-	if err := config.LoadEnvFiles(cwd); err != nil {
-		log.Printf("load .env files: %v", err)
-	}
-
-	// 2. --env-file 指定的文件（最高优先级，最后加载）
-	if *flagEnvFile != "" {
-		if err := config.LoadEnvFile(*flagEnvFile); err != nil {
-			log.Printf("load env file %s: %v", *flagEnvFile, err)
-		}
-	}
 }
 
 // ExportEnvToSubprocess 将当前环境变量导出到子进程

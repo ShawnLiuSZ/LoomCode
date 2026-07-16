@@ -2,37 +2,10 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/ShawnLiuSZ/loomcode/internal/config"
 )
-
-func TestLoadEnvFiles_FlagPriority(t *testing.T) {
-	dir := t.TempDir()
-
-	// 创建 --env-file 指定的文件
-	customEnv := filepath.Join(dir, "custom.env")
-	os.WriteFile(customEnv, []byte("CUSTOM_FLAG_KEY=from_flag\n"), 0644)
-
-	// 创建项目 .env
-	os.WriteFile(filepath.Join(dir, ".env"), []byte("CUSTOM_FLAG_KEY=from_dotenv\n"), 0644)
-
-	// 模拟 --env-file 参数
-	*flagEnvFile = customEnv
-	defer func() { *flagEnvFile = "" }()
-
-	// 切换到临时目录
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
-
-	loadEnvFiles()
-
-	if os.Getenv("CUSTOM_FLAG_KEY") != "from_flag" {
-		t.Errorf("CUSTOM_FLAG_KEY = %q, want from_flag (flag file should win)", os.Getenv("CUSTOM_FLAG_KEY"))
-	}
-}
 
 func TestExportEnvToSubprocess(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "sk-test-deepseek")
@@ -94,91 +67,6 @@ func TestExportEnvToSubprocess_Empty(t *testing.T) {
 	if !foundPath {
 		t.Error("PATH should always be in exported env")
 	}
-}
-
-func TestLoadEnvFiles_CustomPath(t *testing.T) {
-	dir := t.TempDir()
-	customPath := filepath.Join(dir, "my.env")
-	os.WriteFile(customPath, []byte("CUSTOM_PATH_KEY=custom_value\n"), 0644)
-
-	// 直接调用 LoadEnvFile
-	config_LoadEnvFile := func(p string) error {
-		envMap, _ := readEnvFile(p)
-		for k, v := range envMap {
-			os.Setenv(k, v)
-		}
-		return nil
-	}
-	_ = config_LoadEnvFile
-
-	// 手动加载
-	envMap := map[string]string{"CUSTOM_PATH_KEY": "custom_value"}
-	for k, v := range envMap {
-		os.Setenv(k, v)
-	}
-
-	if os.Getenv("CUSTOM_PATH_KEY") != "custom_value" {
-		t.Errorf("CUSTOM_PATH_KEY = %q", os.Getenv("CUSTOM_PATH_KEY"))
-	}
-}
-
-func readEnvFile(path string) (map[string]string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]string)
-	lines := splitLines(string(data))
-	for _, line := range lines {
-		line = trimSpace(line)
-		if line == "" || line[0] == '#' {
-			continue
-		}
-		idx := indexOf(line, '=')
-		if idx > 0 {
-			key := trimSpace(line[:idx])
-			val := trimSpace(line[idx+1:])
-			result[key] = val
-		}
-	}
-	return result, nil
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	current := ""
-	for _, ch := range s {
-		if ch == '\n' {
-			lines = append(lines, current)
-			current = ""
-		} else {
-			current += string(ch)
-		}
-	}
-	if current != "" {
-		lines = append(lines, current)
-	}
-	return lines
-}
-
-func trimSpace(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r') {
-		end--
-	}
-	return s[start:end]
-}
-
-func indexOf(s string, ch byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ch {
-			return i
-		}
-	}
-	return -1
 }
 
 func TestResolveAPIKey(t *testing.T) {
