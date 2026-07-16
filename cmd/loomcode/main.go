@@ -40,7 +40,6 @@ var (
 var (
 	flagProvider = flag.String("provider", "", "Provider name (e.g. deepseek, openai)")
 	flagModel    = flag.String("model", "", "Model ID (e.g. deepseek-v4-flash)")
-	flagConfig   = flag.String("config", "", "Path to config file")
 	flagSession  = flag.String("session", "", "Session ID to resume")
 	flagVersion  = flag.Bool("version", false, "Show version")
 )
@@ -100,7 +99,11 @@ type runtime struct {
 }
 
 func initRuntime(chatMode bool) (*runtime, error) {
-	cfg, err := loadConfig()
+	return initRuntimeWithProject(chatMode, "")
+}
+
+func initRuntimeWithProject(chatMode bool, projectDir string) (*runtime, error) {
+	cfg, err := config.LoadWithProject(projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("配置加载失败: %w", err)
 	}
@@ -252,14 +255,6 @@ func setupCommand() {
 	fmt.Println("配置完成！运行以下命令开始:")
 	fmt.Println("  loomcode chat        # 启动交互式 TUI")
 	fmt.Println("  loomcode run \"hello\" # 运行单个任务")
-}
-
-func loadConfig() (*config.Config, error) {
-	path := *flagConfig
-	if path != "" {
-		return config.Load(path)
-	}
-	return config.LoadDefault()
 }
 
 func selectProvider(cfg *config.Config) (*config.ProviderConfig, error) {
@@ -489,7 +484,8 @@ func registerAutoFormatHook(hm *tool.HookManager) {
 }
 
 func chatCommand() {
-	r, err := initRuntime(true)
+	cwd, _ := os.Getwd()
+	r, err := initRuntimeWithProject(true, cwd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -664,6 +660,14 @@ func ExportEnvToSubprocess(cfg *config.Config) []string {
 				break
 			}
 		}
+	}
+
+	// 添加 config.Env 中的 keys（project > global > env vars）
+	for key, val := range cfg.Env {
+		if val == "" {
+			continue
+		}
+		filtered = append(filtered, key+"="+val)
 	}
 
 	return filtered
