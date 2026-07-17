@@ -1,0 +1,28 @@
+{
+  "env": {
+    "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}",
+    "MIMO_API_KEY": "${MIMO_API_KEY}",
+    "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+  },
+  "plugins": [
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    },
+    {
+      "name": "github",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"]
+    }
+  ],
+  "permissions": {
+    "shell_allowlist": ["git", "go", "make"]
+  },
+  "search": {
+    "engine": "searxng"
+  },
+  "agent": {
+    "planner_model": "deepseek-v4-pro"
+  }
+}

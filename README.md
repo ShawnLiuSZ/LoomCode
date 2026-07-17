@@ -135,7 +135,7 @@ loomcode setup
 
 项目配置优先级高于全局配置，`settings.local.json` 优先级高于 `settings.json`。
 
-完整示例见 [`loomcode.example.json`](loomcode.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
+完整示例见 [`settings.example.json`](settings.example.json)（配置）和 [`models.example.json`](models.example.json)（模型）。
 
 最小可运行配置（`models.json`）：
 
