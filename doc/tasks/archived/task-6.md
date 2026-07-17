@@ -70,3 +70,12 @@
 |--------|---------|---------|------|
 | 创建分支生成 task.md | 自动创建 doc/version/current/tasks/task-{N}.md | 待验证 | ⏳ |
 | PR 合并后归档 | 自动移动到 doc/tasks/archived/ | 待验证 | ⏳ |
+
+---
+
+## 归档信息
+
+- **PR:** #8
+- **合并时间:** 2026-07-17
+- **合并人:** ShawnLiuSZ
+- **分支:** hotfix/lsz/6-supplement-workflows@main260716 → main
