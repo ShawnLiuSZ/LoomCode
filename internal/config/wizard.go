@@ -2,12 +2,11 @@ package config
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
-
-	"github.com/BurntSushi/toml"
 )
 
 // Wizard guides the user through interactive configuration setup.
@@ -264,16 +263,14 @@ func (w *Wizard) readYesNo(prompt string) (bool, error) {
 	return s == "y" || s == "yes", nil
 }
 
-// WriteConfig marshals cfg to TOML and writes it to the given path.
+// WriteConfig marshals cfg to JSON and writes it to the given path.
 func WriteConfig(cfg *Config, path string) error {
-	f, err := os.Create(path)
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("创建 %s 失败: %w", path, err)
+		return fmt.Errorf("encode config: %w", err)
 	}
-	defer f.Close()
-
-	if err := toml.NewEncoder(f).Encode(cfg); err != nil {
-		return fmt.Errorf("编码配置失败: %w", err)
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }

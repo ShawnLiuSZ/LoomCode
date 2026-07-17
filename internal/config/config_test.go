@@ -7,29 +7,33 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	// 创建临时 TOML 配置
+	// 创建临时 JSON 配置
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.toml")
+	path := filepath.Join(dir, "test.json")
 
-	content := `
-default_provider = "deepseek"
-
-[[providers]]
-name         = "deepseek"
-display_name = "DeepSeek"
-kind         = "deepseek"
-base_url     = "https://api.deepseek.com"
-api_key_env  = "DEEPSEEK_API_KEY"
-
-  [[providers.models]]
-  id   = "deepseek-v4-flash"
-  name = "DeepSeek V4 Flash"
-  context_window = 131072
-
-  [providers.models.capabilities]
-  tool_call    = true
-  prefix_cache = true
-`
+	content := `{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072,
+          "capabilities": {
+            "tool_call": true,
+            "prefix_cache": true
+          }
+        }
+      ]
+    }
+  ]
+}`
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -62,18 +66,19 @@ api_key_env  = "DEEPSEEK_API_KEY"
 
 func TestLoadConfig_MissingAPIKey(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "test.toml")
+	path := filepath.Join(dir, "test.json")
 
-	content := `
-[[providers]]
-name        = "test"
-kind        = "openai"
-base_url    = "https://api.example.com/v1"
-api_key_env = "MISSING_KEY"
-
-  [[providers.models]]
-  id = "m1"
-`
+	content := `{
+  "providers": [
+    {
+      "name": "test",
+      "kind": "openai",
+      "base_url": "https://api.example.com/v1",
+      "api_key_env": "MISSING_KEY",
+      "models": [{ "id": "m1" }]
+    }
+  ]
+}`
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -126,7 +131,7 @@ func TestLoadDefault(t *testing.T) {
 	t.Setenv("DEEPSEEK_API_KEY", "test-key")
 	t.Setenv("MIMO_API_KEY", "test-key")
 
-	// 当前目录没有 loomcode.toml，应返回默认配置
+	// 当前目录没有 loomcode.json，应返回默认配置
 	cfg, err := LoadDefault()
 	if err != nil {
 		t.Fatalf("LoadDefault() error: %v", err)
@@ -137,12 +142,12 @@ func TestLoadDefault(t *testing.T) {
 }
 
 func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
-	// 模拟项目目录： loomcode.toml 只有注释，没有 provider
+	// 模拟项目目录： loomcode.json 只有空数组，没有 provider
 	projectDir := t.TempDir()
 	globalDir := t.TempDir()
 
-	emptyLocal := filepath.Join(projectDir, "loomcode.toml")
-	if err := os.WriteFile(emptyLocal, []byte("# 配置已移到 ~/.loomcode/loomcode.toml\n"), 0644); err != nil {
+	emptyLocal := filepath.Join(projectDir, "loomcode.json")
+	if err := os.WriteFile(emptyLocal, []byte(`{"providers": []}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,22 +155,26 @@ func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
 	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	globalConfig := filepath.Join(globalConfigDir, "loomcode.toml")
-	content := `
-default_provider = "mimo"
-
-[[providers]]
-name         = "mimo"
-display_name = "MiMo"
-kind         = "mimo"
-base_url     = "https://api.mimo.xiaomi.com/v1"
-api_key_env  = "MIMO_API_KEY"
-
-  [[providers.models]]
-  id   = "mimo-v2.5-pro"
-  name = "MiMo V2.5 Pro"
-  context_window = 262144
-`
+	globalConfig := filepath.Join(globalConfigDir, "loomcode.json")
+	content := `{
+  "default_provider": "mimo",
+  "providers": [
+    {
+      "name": "mimo",
+      "display_name": "MiMo",
+      "kind": "mimo",
+      "base_url": "https://api.mimo.xiaomi.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "models": [
+        {
+          "id": "mimo-v2.5-pro",
+          "name": "MiMo V2.5 Pro",
+          "context_window": 262144
+        }
+      ]
+    }
+  ]
+}`
 	if err := os.WriteFile(globalConfig, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -190,16 +199,16 @@ func TestLoadDefault_AllEmptyFallsBackToDefault(t *testing.T) {
 	projectDir := t.TempDir()
 	globalDir := t.TempDir()
 
-	emptyLocal := filepath.Join(projectDir, "loomcode.toml")
-	if err := os.WriteFile(emptyLocal, []byte("# empty\n"), 0644); err != nil {
+	emptyLocal := filepath.Join(projectDir, "loomcode.json")
+	if err := os.WriteFile(emptyLocal, []byte(`{"providers": []}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	globalConfigDir := filepath.Join(globalDir, ".loomcode")
 	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	emptyGlobal := filepath.Join(globalConfigDir, "loomcode.toml")
-	if err := os.WriteFile(emptyGlobal, []byte("# empty\n"), 0644); err != nil {
+	emptyGlobal := filepath.Join(globalConfigDir, "loomcode.json")
+	if err := os.WriteFile(emptyGlobal, []byte(`{"providers": []}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -301,7 +310,7 @@ func TestLoadDefault_ModelsJSON(t *testing.T) {
 	}
 }
 
-func TestLoadDefault_ModelsTomlPriorityOverDeprecatedGlobal(t *testing.T) {
+func TestLoadDefault_LoomcodeJsonPriorityOverModelsJson(t *testing.T) {
 	projectDir := t.TempDir()
 	globalDir := t.TempDir()
 
@@ -310,37 +319,35 @@ func TestLoadDefault_ModelsTomlPriorityOverDeprecatedGlobal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	modelsTOML := filepath.Join(globalConfigDir, "models.toml")
-	if err := os.WriteFile(modelsTOML, []byte(`
-default_provider = "mimo"
-
-[[providers]]
-name      = "mimo"
-kind      = "mimo"
-base_url  = "https://api.mimo.xiaomi.com/v1"
-api_key_env = "MIMO_API_KEY"
-
-  [[providers.models]]
-  id = "mimo-v2.5-pro"
-  context_window = 262144
-`), 0644); err != nil {
+	loomcodeJSON := filepath.Join(globalConfigDir, "loomcode.json")
+	if err := os.WriteFile(loomcodeJSON, []byte(`{
+  "default_provider": "openai",
+  "providers": [
+    {
+      "name": "openai",
+      "kind": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY",
+      "models": [{ "id": "gpt-4o", "context_window": 128000 }]
+    }
+  ]
+}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	deprecatedGlobal := filepath.Join(globalConfigDir, "loomcode.toml")
-	if err := os.WriteFile(deprecatedGlobal, []byte(`
-default_provider = "openai"
-
-[[providers]]
-name      = "openai"
-kind      = "openai"
-base_url  = "https://api.openai.com/v1"
-api_key_env = "OPENAI_API_KEY"
-
-  [[providers.models]]
-  id = "gpt-4o"
-  context_window = 128000
-`), 0644); err != nil {
+	modelsJSON := filepath.Join(globalConfigDir, "models.json")
+	if err := os.WriteFile(modelsJSON, []byte(`{
+  "default_provider": "mimo",
+  "providers": [
+    {
+      "name": "mimo",
+      "kind": "mimo",
+      "base_url": "https://api.mimo.xiaomi.com/v1",
+      "api_key_env": "MIMO_API_KEY",
+      "models": [{ "id": "mimo-v2.5-pro", "context_window": 262144 }]
+    }
+  ]
+}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -353,11 +360,12 @@ api_key_env = "OPENAI_API_KEY"
 	if err != nil {
 		t.Fatalf("LoadDefault() error: %v", err)
 	}
-	if cfg.DefaultProvider != "mimo" {
-		t.Errorf("DefaultProvider = %q, want %q (models.toml should win)", cfg.DefaultProvider, "mimo")
+	// loomcode.json has higher priority than models.json
+	if cfg.DefaultProvider != "openai" {
+		t.Errorf("DefaultProvider = %q, want %q (loomcode.json should win)", cfg.DefaultProvider, "openai")
 	}
-	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "mimo" {
-		t.Errorf("expected provider 'mimo', got %+v", cfg.Providers)
+	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "openai" {
+		t.Errorf("expected provider 'openai', got %+v", cfg.Providers)
 	}
 }
 
@@ -495,17 +503,18 @@ func TestValidate_Valid(t *testing.T) {
 
 func TestLoad_Validation(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "bad.toml")
+	path := filepath.Join(dir, "bad.json")
 
-	content := `
-[[providers]]
-name = "test"
-kind = "unknown"
-base_url = "https://api.test.com"
-
-  [[providers.models]]
-  id = "m1"
-`
+	content := `{
+  "providers": [
+    {
+      "name": "test",
+      "kind": "unknown",
+      "base_url": "https://api.test.com",
+      "models": [{ "id": "m1" }]
+    }
+  ]
+}`
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

@@ -40,8 +40,6 @@ var (
 var (
 	flagProvider = flag.String("provider", "", "Provider name (e.g. deepseek, openai)")
 	flagModel    = flag.String("model", "", "Model ID (e.g. deepseek-v4-flash)")
-	flagConfig   = flag.String("config", "", "Path to config file")
-	flagEnvFile  = flag.String("env-file", "", "Path to .env file to load")
 	flagSession  = flag.String("session", "", "Session ID to resume")
 	flagVersion  = flag.Bool("version", false, "Show version")
 )
@@ -53,8 +51,11 @@ func main() {
 	// 注入版本号到 UI 包
 	ui.Version = version
 
-	// 加载 .env 文件
-	loadEnvFiles()
+	// 迁移旧配置（首次启动时）
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		_ = config.MigrateOldConfigs(home)
+	}
 
 	// 注册任务存储
 	tool.SetTaskStore(tool.NewTaskStore())
@@ -104,7 +105,11 @@ type runtime struct {
 }
 
 func initRuntime(chatMode bool) (*runtime, error) {
-	cfg, err := loadConfig()
+	return initRuntimeWithProject(chatMode, "")
+}
+
+func initRuntimeWithProject(chatMode bool, projectDir string) (*runtime, error) {
+	cfg, err := config.LoadWithProject(projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("配置加载失败: %w", err)
 	}
@@ -223,14 +228,14 @@ func setupCommand() {
 		os.Exit(1)
 	}
 
-	// 写入 ~/.loomcode/loomcode.toml（全局配置目录）
+	// 写入 ~/.loomcode/loomcode.json（全局配置目录）
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".loomcode")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "创建配置目录失败: %v\n", err)
 		os.Exit(1)
 	}
-	configPath := filepath.Join(configDir, "loomcode.toml")
+	configPath := filepath.Join(configDir, "loomcode.json")
 	if err := config.WriteConfig(cfg, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "写入 %s 失败: %v\n", configPath, err)
 		os.Exit(1)
@@ -256,14 +261,6 @@ func setupCommand() {
 	fmt.Println("配置完成！运行以下命令开始:")
 	fmt.Println("  loomcode chat        # 启动交互式 TUI")
 	fmt.Println("  loomcode run \"hello\" # 运行单个任务")
-}
-
-func loadConfig() (*config.Config, error) {
-	path := *flagConfig
-	if path != "" {
-		return config.Load(path)
-	}
-	return config.LoadDefault()
 }
 
 func selectProvider(cfg *config.Config) (*config.ProviderConfig, error) {
@@ -493,7 +490,8 @@ func registerAutoFormatHook(hm *tool.HookManager) {
 }
 
 func chatCommand() {
-	r, err := initRuntime(true)
+	cwd, _ := os.Getwd()
+	r, err := initRuntimeWithProject(true, cwd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -614,7 +612,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  loomcode [options] setup          Run configuration wizard\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options] chat           Interactive TUI\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options] dashboard      Start web dashboard\n")
-	fmt.Fprintf(os.Stderr, "  loomcode [options] schema         Print JSON Schema for loomcode.toml\n")
+	fmt.Fprintf(os.Stderr, "  loomcode [options] schema         Print JSON Schema for loomcode.json\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options]                Start interactive TUI (default)\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  loomcode                                    Start TUI\n")
@@ -624,22 +622,6 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  loomcode dashboard :9090                    Dashboard on port 9090\n\n")
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
-}
-
-// loadEnvFiles 按优先级加载环境变量文件
-func loadEnvFiles() {
-	// 1. 项目目录下的 .env 文件
-	cwd, _ := os.Getwd()
-	if err := config.LoadEnvFiles(cwd); err != nil {
-		log.Printf("load .env files: %v", err)
-	}
-
-	// 2. --env-file 指定的文件（最高优先级，最后加载）
-	if *flagEnvFile != "" {
-		if err := config.LoadEnvFile(*flagEnvFile); err != nil {
-			log.Printf("load env file %s: %v", *flagEnvFile, err)
-		}
-	}
 }
 
 // ExportEnvToSubprocess 将当前环境变量导出到子进程
@@ -684,6 +666,14 @@ func ExportEnvToSubprocess(cfg *config.Config) []string {
 				break
 			}
 		}
+	}
+
+	// 添加 config.Env 中的 keys（project > global > env vars）
+	for key, val := range cfg.Env {
+		if val == "" {
+			continue
+		}
+		filtered = append(filtered, key+"="+val)
 	}
 
 	return filtered

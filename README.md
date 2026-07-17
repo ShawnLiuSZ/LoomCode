@@ -123,16 +123,19 @@ loomcode setup
 
 ### 方式二：手动编辑配置
 
-配置文件支持 **TOML** 与 **JSON** 两种格式，位置按以下优先级查找：
+配置文件使用 **JSON** 格式，位置按以下优先级查找：
 
 1. `--config <path>`（CLI 参数，最高优先级）
-2. `./loomcode.toml`（项目级，已弃用，向后兼容）
-3. `~/.loomcode/models.json`（全局用户配置，JSON，推荐）
-4. `~/.loomcode/models.toml`（全局用户配置，TOML）
-5. `./models.json` / `./models.toml`（项目级）
-6. `~/.loomcode/loomcode.toml` / `~/.loomcode/config.toml`（已弃用，向后兼容）
+2. `./loomcode.json`（项目级主配置）
+3. `~/.loomcode/loomcode.json`（全局主配置）
+4. `./models.json`（项目级模型配置）
+5. `~/.loomcode/models.json`（全局模型配置）
 
-JSON 完整示例见 [`models.example.json`](models.example.json)，TOML 完整示例见 [`loomcode.example.toml`](loomcode.example.toml)。最小可运行配置（JSON）：
+主配置文件 `loomcode.json` 包含 plugins、permissions、search、agent 等设置；`models.json` 仅包含 providers/models 定义。
+
+完整示例见 [`loomcode.example.json`](loomcode.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
+
+最小可运行配置（`models.json`）：
 
 ```json
 {
@@ -421,9 +424,49 @@ Agent 在执行任务时可调用以下工具访问历史会话：
 
 ### 配置文件
 
-推荐将 provider 配置放在 `~/.loomcode/models.json`（JSON）；也支持 `~/.loomcode/models.toml`（TOML）。项目级可使用 `./models.json` / `./models.toml`。旧的 `loomcode.toml` / `~/.loomcode/loomcode.toml` 仍兼容，但已弃用。
+配置使用 JSON 格式，分为两个文件：
 
-JSON 示例见 [`models.example.json`](models.example.json)，TOML 示例见 [`loomcode.example.toml`](loomcode.example.toml)。
+- **`loomcode.json`** — 主配置（plugins、permissions、search、agent 等）
+- **`models.json`** — 模型配置（providers/models 定义）
+
+查找优先级（高到低）：
+
+1. `--config <path>`（CLI 参数）
+2. `./loomcode.json`（项目级主配置）
+3. `~/.loomcode/loomcode.json`（全局主配置）
+4. `./models.json`（项目级模型配置）
+5. `~/.loomcode/models.json`（全局模型配置）
+
+完整示例见 [`loomcode.example.json`](loomcode.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
+
+主配置示例（`loomcode.json`）：
+
+```json
+{
+  "default_provider": "deepseek",
+  "env": {
+    "DEEPSEEK_API_KEY": "sk-xxxxxxxxxxxxxxxx"
+  },
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    }
+  ],
+  "permissions": {
+    "shell_allowlist": ["git", "go", "make"]
+  },
+  "search": {
+    "engine": "searxng"
+  },
+  "agent": {
+    "planner_model": "deepseek-v4-pro"
+  }
+}
+```
+
+模型配置示例（`models.json`）：
 
 ```json
 {
@@ -463,13 +506,7 @@ JSON 示例见 [`models.example.json`](models.example.json)，TOML 示例见 [`l
 loomcode schema > ~/.loomcode/schema.json
 ```
 
-VS Code 在 TOML 配置顶部添加：
-
-```toml
-#:schema ~/.loomcode/schema.json
-```
-
-即可获得字段补全、类型校验、枚举提示。JSON 配置同理可通过编辑器关联 `schema.json`。
+在编辑器中关联 `schema.json` 即可获得字段补全、类型校验、枚举提示。
 
 ### 环境变量
 
@@ -493,19 +530,22 @@ OPENAI_API_KEY=
 
 ## MCP 插件
 
-在配置文件（推荐 `~/.loomcode/models.json`，也支持 `~/.loomcode/models.toml` 或项目级对应文件）中配置 MCP 服务器，扩展工具能力：
+在 `loomcode.json` 中配置 MCP 服务器，扩展工具能力：
 
-```toml
-# stdio 模式
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# HTTP/SSE 模式
-[[plugins]]
-name = "remote-tool"
-url  = "https://mcp.example.com/sse"
+```json
+{
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    },
+    {
+      "name": "remote-tool",
+      "url": "https://mcp.example.com/sse"
+    }
+  ]
+}
 ```
 
 ---
@@ -528,7 +568,7 @@ url  = "https://mcp.example.com/sse"
 | 层次 | 技术 |
 |------|------|
 | 语言 | Go（CGO_ENABLED=0） |
-| 配置 | TOML + JSON Schema |
+| 配置 | JSON + JSON Schema |
 | TUI | Bubble Tea + Lip Gloss |
 | 记忆存储 | SQLite FTS5 |
 | 插件协议 | MCP（stdio + HTTP） |

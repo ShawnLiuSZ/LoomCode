@@ -22,61 +22,6 @@
             "tool_call": true,
             "prefix_cache": true
           }
-        },
-        {
-          "id": "deepseek-v4-pro",
-          "name": "DeepSeek V4 Pro",
-          "context_window": 131072,
-          "cost": {
-            "input": 0.55,
-            "cached_input": 0.055,
-            "output": 2.19
-          },
-          "capabilities": {
-            "reasoning": true,
-            "tool_call": true,
-            "prefix_cache": true
-          }
-        }
-      ]
-    },
-    {
-      "name": "mimo",
-      "display_name": "MiMo",
-      "kind": "mimo",
-      "base_url": "https://api.xiaomimimo.com/v1",
-      "api_key_env": "MIMO_API_KEY",
-      "default_model": "mimo-v2.5-pro",
-      "models": [
-        {
-          "id": "mimo-v2.5-pro",
-          "name": "MiMo V2.5 Pro",
-          "context_window": 262144,
-          "capabilities": {
-            "reasoning": true,
-            "tool_call": true,
-            "voice": true
-          }
-        }
-      ]
-    },
-    {
-      "name": "mimo-token-plan",
-      "display_name": "MiMo Token Plan",
-      "kind": "mimo",
-      "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-      "api_key_env": "MIMO_TOKEN_PLAN_KEY",
-      "default_model": "mimo-v2.5-pro",
-      "models": [
-        {
-          "id": "mimo-v2.5-pro",
-          "name": "MiMo V2.5 Pro",
-          "context_window": 262144,
-          "capabilities": {
-            "reasoning": true,
-            "tool_call": true,
-            "voice": true
-          }
         }
       ]
     }
