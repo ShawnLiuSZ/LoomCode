@@ -524,3 +524,110 @@ func TestLoad_Validation(t *testing.T) {
 		t.Error("expected error for invalid config")
 	}
 }
+
+func TestExpandEnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		envMaps  []map[string]string
+		sysEnv   string
+		expected string
+	}{
+		{
+			name:     "plain string not expanded",
+			value:    "sk-12345",
+			expected: "sk-12345",
+		},
+		{
+			name:     "env var from project env",
+			value:    "${MY_KEY}",
+			envMaps:  []map[string]string{{"MY_KEY": "project-value"}},
+			expected: "project-value",
+		},
+		{
+			name:     "env var from global env",
+			value:    "${MY_KEY}",
+			envMaps:  []map[string]string{nil, {"MY_KEY": "global-value"}},
+			expected: "global-value",
+		},
+		{
+			name:     "env var from system env",
+			value:    "${MY_TEST_SYS_KEY}",
+			sysEnv:   "sys-value",
+			expected: "sys-value",
+		},
+		{
+			name:     "env var not found returns as-is",
+			value:    "${NONEXISTENT_KEY}",
+			expected: "${NONEXISTENT_KEY}",
+		},
+		{
+			name:     "empty env var name",
+			value:    "${}",
+			expected: "${}",
+		},
+		{
+			name:     "project env overrides system env",
+			value:    "${MY_TEST_SYS_KEY}",
+			envMaps:  []map[string]string{{"MY_TEST_SYS_KEY": "project-wins"}},
+			expected: "project-wins",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.sysEnv != "" {
+				t.Setenv("MY_TEST_SYS_KEY", tt.sysEnv)
+			}
+			result := expandEnvVar(tt.value, tt.envMaps...)
+			if result != tt.expected {
+				t.Errorf("expandEnvVar(%q) = %q, want %q", tt.value, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestResolveAPIKeys_EnvVarExpansion(t *testing.T) {
+	t.Setenv("DEEPSEEK_TEST_KEY", "resolved-key")
+
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{
+				Name:   "deepseek",
+				Kind:   "deepseek",
+				APIKey: "${DEEPSEEK_TEST_KEY}",
+			},
+		},
+	}
+
+	if err := cfg.resolveAPIKeys(nil, nil); err != nil {
+		t.Fatalf("resolveAPIKeys: %v", err)
+	}
+
+	if cfg.Providers[0].APIKey != "resolved-key" {
+		t.Errorf("expected APIKey to be 'resolved-key', got %q", cfg.Providers[0].APIKey)
+	}
+}
+
+func TestResolveAPIKeys_ApiKeyEnv_BackwardCompatible(t *testing.T) {
+	t.Setenv("MY_BACKUP_KEY", "backup-value")
+
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{
+				Name:      "test",
+				Kind:      "openai",
+				BaseURL:   "https://api.openai.com",
+				APIKeyEnv: "MY_BACKUP_KEY",
+			},
+		},
+	}
+
+	if err := cfg.resolveAPIKeys(nil, nil); err != nil {
+		t.Fatalf("resolveAPIKeys: %v", err)
+	}
+
+	if cfg.Providers[0].APIKey != "backup-value" {
+		t.Errorf("expected APIKey to be 'backup-value', got %q", cfg.Providers[0].APIKey)
+	}
+}

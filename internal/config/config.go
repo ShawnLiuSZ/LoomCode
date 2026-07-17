@@ -187,32 +187,68 @@ func LoadDefault() (*Config, error) {
 	return DefaultConfig(), nil
 }
 
+// expandEnvVar expands ${ENV_VAR} references in a string.
+// If the value contains ${...}, it extracts the env var name and resolves it.
+// Returns the expanded value, or the original value if no expansion is needed.
+func expandEnvVar(value string, envMaps ...map[string]string) string {
+	if len(value) < 4 || value[:2] != "${" || value[len(value)-1] != '}' {
+		return value
+	}
+	envName := value[2 : len(value)-1]
+	if envName == "" {
+		return value
+	}
+
+	// Check provided env maps first (project > global)
+	for _, m := range envMaps {
+		if m == nil {
+			continue
+		}
+		if val, ok := m[envName]; ok && val != "" {
+			return val
+		}
+	}
+
+	// Fall back to system environment
+	if val := os.Getenv(envName); val != "" {
+		return val
+	}
+
+	return value // return unresolved reference as-is
+}
+
 // resolveAPIKeys 检查各 Provider 的 API Key 是否已配置。
-// 优先级：配置文件 api_key > 项目 env > 全局 env > 系统环境变量
+// 支持 ${ENV_VAR} 语法直接展开环境变量。
+// 优先级：api_key(${...}展开) > api_key_env(project env > global env > system env)
 func (c *Config) resolveAPIKeys(projectEnv, globalEnv map[string]string) error {
 	for i := range c.Providers {
 		p := &c.Providers[i]
+
+		// 1. 如果 api_key 包含 ${ENV_VAR}，展开它
 		if p.APIKey != "" {
+			p.APIKey = expandEnvVar(p.APIKey, projectEnv, globalEnv)
 			continue
 		}
+
+		// 2. 通过 api_key_env 查找（向后兼容）
 		if p.APIKeyEnv == "" {
 			continue
 		}
 		keyName := p.APIKeyEnv
 
-		// 1. 项目级 env 配置
+		// 2a. 项目级 env 配置
 		if val, ok := projectEnv[keyName]; ok && val != "" {
 			p.APIKey = val
 			continue
 		}
 
-		// 2. 全局 env 配置
+		// 2b. 全局 env 配置
 		if val, ok := globalEnv[keyName]; ok && val != "" {
 			p.APIKey = val
 			continue
 		}
 
-		// 3. 系统环境变量
+		// 2c. 系统环境变量
 		if val := os.Getenv(keyName); val != "" {
 			p.APIKey = val
 			continue
