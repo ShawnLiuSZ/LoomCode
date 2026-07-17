@@ -125,13 +125,15 @@ loomcode setup
 
 配置文件使用 **JSON** 格式，位置按以下优先级查找：
 
-1. `--config <path>`（CLI 参数，最高优先级）
-2. `./loomcode.json`（项目级主配置）
-3. `~/.loomcode/loomcode.json`（全局主配置）
-4. `./models.json`（项目级模型配置）
-5. `~/.loomcode/models.json`（全局模型配置）
+**全局配置**（`~/.loomcode/`）：
+1. `~/.loomcode/models.json`（模型定义）
+2. `~/.loomcode/loomcode.json`（env、plugins 等）
 
-主配置文件 `loomcode.json` 包含 plugins、permissions、search、agent 等设置；`models.json` 仅包含 providers/models 定义。
+**项目配置**（`.loomcode/`，项目根目录下）：
+3. `.loomcode/settings.json`（共享配置，可提交到 git）
+4. `.loomcode/settings.local.json`（本地覆盖，已 gitignore）
+
+项目配置优先级高于全局配置，`settings.local.json` 优先级高于 `settings.json`。
 
 完整示例见 [`loomcode.example.json`](loomcode.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
 

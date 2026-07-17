@@ -44,10 +44,11 @@ dist/
 *.sqlite3
 
 # LoomCode specific
-.loomcode/
-
-# LoomCode session files (JSONL)
+.loomcode/settings.local.json
 .loomcode/sessions/
+.loomcode/trust.json
+.loomcode/checkpoints/
+.loomcode/memory.db
 *.jsonl
 
 # CodeBuddy local settings (contains tokens)

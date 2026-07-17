@@ -179,7 +179,7 @@ func TestLoadWithProject_ProjectOverridesGlobal(t *testing.T) {
 
 	// Set up project config with different provider
 	projectDir := filepath.Join(tmpDir, "project")
-	projectConfigDir := filepath.Join(projectDir, ".claude")
+	projectConfigDir := filepath.Join(projectDir, ".loomcode")
 	os.MkdirAll(projectConfigDir, 0755)
 	projectContent := `{
   "default_provider": "openai",
@@ -191,7 +191,7 @@ func TestLoadWithProject_ProjectOverridesGlobal(t *testing.T) {
     "models": [{"id": "gpt-4o", "context_window": 128000}]
   }]
 }`
-	os.WriteFile(filepath.Join(projectConfigDir, "loomcode.json"), []byte(projectContent), 0644)
+	os.WriteFile(filepath.Join(projectConfigDir, "settings.json"), []byte(projectContent), 0644)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", home)
@@ -232,7 +232,7 @@ func TestLoadWithProject_EnvMerge(t *testing.T) {
 
 	// Set up project config with additional env
 	projectDir := filepath.Join(tmpDir, "project")
-	projectConfigDir := filepath.Join(projectDir, ".claude")
+	projectConfigDir := filepath.Join(projectDir, ".loomcode")
 	os.MkdirAll(projectConfigDir, 0755)
 	projectContent := `{
   "default_provider": "deepseek",
@@ -245,7 +245,7 @@ func TestLoadWithProject_EnvMerge(t *testing.T) {
   }],
   "env": {"DEEPSEEK_API_KEY": "project-key", "EXTRA_KEY": "extra-val"}
 }`
-	os.WriteFile(filepath.Join(projectConfigDir, "loomcode.json"), []byte(projectContent), 0644)
+	os.WriteFile(filepath.Join(projectConfigDir, "settings.json"), []byte(projectContent), 0644)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", home)

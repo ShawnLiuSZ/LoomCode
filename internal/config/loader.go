@@ -59,18 +59,25 @@ func loadGlobalConfig() (*Config, error) {
 	return merged, nil
 }
 
-// loadProjectConfig loads the project-level config from <projectDir>/.claude/loomcode.json.
+// loadProjectConfig loads the project-level config from <projectDir>/.loomcode/.
+// Searches for settings.json (shared) and settings.local.json (local override).
 func loadProjectConfig(projectDir string) (*Config, error) {
 	if projectDir == "" {
 		return nil, nil
 	}
 
-	projectPath := filepath.Join(projectDir, ".claude", "loomcode.json")
-	if _, err := os.Stat(projectPath); err == nil {
-		return Load(projectPath)
-	}
+	dir := filepath.Join(projectDir, ".loomcode")
 
-	return nil, nil
+	// Load settings.json (shared config, can be committed to git)
+	settingsPath := filepath.Join(dir, "settings.json")
+	settingsCfg, _ := Load(settingsPath)
+
+	// Load settings.local.json (local override, gitignored)
+	localPath := filepath.Join(dir, "settings.local.json")
+	localCfg, _ := Load(localPath)
+
+	// Merge: local overrides shared
+	return mergeConfigs(settingsCfg, localCfg), nil
 }
 
 // mergeConfigs merges two configs, with project overriding global.
