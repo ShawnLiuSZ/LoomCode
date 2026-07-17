@@ -35,6 +35,31 @@ func filterEnvForSubprocess() []string {
 	return filtered
 }
 
+// mergeEnv 合并环境变量，extra 覆盖 base 中的同名 key
+func mergeEnv(base []string, extra map[string]string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	// 构建已存在的 key 集合
+	existing := make(map[string]bool, len(base))
+	for _, e := range base {
+		for i := 0; i < len(e); i++ {
+			if e[i] == '=' {
+				existing[e[:i]] = true
+				break
+			}
+		}
+	}
+	result := make([]string, 0, len(base)+len(extra))
+	result = append(result, base...)
+	for k, v := range extra {
+		if !existing[k] {
+			result = append(result, k+"="+v)
+		}
+	}
+	return result
+}
+
 const (
 	defaultMaxRetries = 3
 	baseRetryDelay    = 1 * time.Second
@@ -68,6 +93,9 @@ type Client struct {
 	maxRetries   int
 	reconnecting atomic.Bool
 
+	// 额外环境变量（来自配置文件的 env 字段）
+	extraEnv map[string]string
+
 	// 子进程生命周期 context：connect 时创建，cleanup/Close 时取消，
 	// 确保子进程（MCP server）在关闭时被杀掉，避免孤儿进程。
 	lifeCtx    context.Context
@@ -88,6 +116,11 @@ func NewClient(command string, args ...string) *Client {
 	}
 }
 
+// SetEnv 设置额外环境变量
+func (c *Client) SetEnv(env map[string]string) {
+	c.extraEnv = env
+}
+
 // SetMaxRetries 设置最大重试次数
 func (c *Client) SetMaxRetries(n int) {
 	c.maxRetries = n
@@ -105,7 +138,7 @@ func (c *Client) connect() error {
 	// 每次连接创建独立的生命周期 context，cleanup 时取消以杀掉子进程（避免孤儿进程）。
 	c.lifeCtx, c.lifeCancel = context.WithCancel(context.Background())
 	cmd := exec.CommandContext(c.lifeCtx, c.command, c.args...)
-	cmd.Env = filterEnvForSubprocess()
+	cmd.Env = mergeEnv(filterEnvForSubprocess(), c.extraEnv)
 	c.cmd = cmd
 
 	stdin, err := cmd.StdinPipe()

@@ -192,7 +192,7 @@ sleep 60
 `
 	os.WriteFile(scriptPath, []byte(script), 0755)
 
-	err := mgr.Connect("test", "bash", scriptPath)
+	err := mgr.Connect("test", "bash", []string{scriptPath}, nil)
 	if err != nil {
 		t.Fatalf("Connect error: %v", err)
 	}
@@ -237,7 +237,7 @@ sleep 60
 `
 	os.WriteFile(scriptPath, []byte(script), 0755)
 
-	mgr.Connect("disconnect-test", "bash", scriptPath)
+	mgr.Connect("disconnect-test", "bash", []string{scriptPath}, nil)
 
 	if mgr.ToolCount() != 1 {
 		t.Errorf("ToolCount before disconnect = %d, want 1", mgr.ToolCount())
@@ -269,10 +269,10 @@ sleep 60
 `
 	os.WriteFile(scriptPath, []byte(script), 0755)
 
-	mgr.Connect("dup", "bash", scriptPath)
+	mgr.Connect("dup", "bash", []string{scriptPath}, nil)
 	defer mgr.DisconnectAll()
 
-	err := mgr.Connect("dup", "bash", scriptPath)
+	err := mgr.Connect("dup", "bash", []string{scriptPath}, nil)
 	if err == nil {
 		t.Error("expected error for duplicate connection")
 	}

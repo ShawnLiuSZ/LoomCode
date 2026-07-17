@@ -86,7 +86,7 @@ func NewPluginManager(registry *tool.Registry) *PluginManager {
 }
 
 // Connect 连接 MCP 服务器（stdio 传输）
-func (m *PluginManager) Connect(name, command string, args ...string) error {
+func (m *PluginManager) Connect(name, command string, args []string, env map[string]string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -95,6 +95,9 @@ func (m *PluginManager) Connect(name, command string, args ...string) error {
 	}
 
 	client := NewClient(command, args...)
+	if len(env) > 0 {
+		client.SetEnv(env)
+	}
 	if err := client.Connect(); err != nil {
 		return fmt.Errorf("connect %q: %w", name, err)
 	}

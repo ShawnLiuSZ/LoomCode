@@ -302,7 +302,7 @@ func connectPlugins(ctx context.Context, plugins []config.PluginConfig, tools *t
 		case "sse":
 			err = pm.ConnectSSE(ctx, pc.Name, pc.URL)
 		case "stdio":
-			err = pm.Connect(pc.Name, pc.Command, pc.Args...)
+			err = pm.Connect(pc.Name, pc.Command, pc.Args, pc.Env)
 		default:
 			fmt.Fprintf(os.Stderr, "Warning: MCP plugin %q has neither command nor url; skipped\n", pc.Name)
 			continue

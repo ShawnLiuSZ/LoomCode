@@ -4,18 +4,25 @@
     "MIMO_API_KEY": "${MIMO_API_KEY}",
     "OPENAI_API_KEY": "${OPENAI_API_KEY}"
   },
-  "plugins": [
-    {
-      "name": "filesystem",
+  "plugins": {
+    "filesystem": {
+      "type": "stdio",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
     },
-    {
-      "name": "github",
+    "github": {
+      "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"]
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
     }
-  ],
+  },
   "permissions": {
     "shell_allowlist": ["git", "go", "make"]
   },

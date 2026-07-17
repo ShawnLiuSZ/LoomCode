@@ -14,11 +14,33 @@ type Config struct {
 	DefaultProvider string             `json:"default_provider,omitempty"`
 	Providers       []ProviderConfig   `json:"providers,omitempty"`
 	Plugins         []PluginConfig     `json:"plugins,omitempty"`
+	McpServers      map[string]PluginConfig `json:"mcpServers,omitempty"` // Claude Code 兼容格式
 	Env             map[string]string  `json:"env,omitempty"` // API keys: project > global > env vars
 	Permissions     PermissionConfig   `json:"permissions,omitempty"`
 	Search          SearchConfig       `json:"search,omitempty"`
 	Experimental    ExperimentalConfig `json:"experimental,omitempty"`
 	Agent           AgentConfig        `json:"agent,omitempty"`
+}
+
+// UnmarshalConfig 自定义反序列化，合并 plugins 和 mcpServers
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+	aux := &struct {
+		*Alias
+	}{Alias: (*Alias)(c)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	// 将 mcpServers 对象转换为 plugins 数组
+	if len(c.McpServers) > 0 && len(c.Plugins) == 0 {
+		for name, pc := range c.McpServers {
+			if pc.Name == "" {
+				pc.Name = name
+			}
+			c.Plugins = append(c.Plugins, pc)
+		}
+	}
+	return nil
 }
 
 // ProviderConfig 单个 Provider 配置
@@ -60,25 +82,35 @@ type CapConfig struct {
 }
 
 // PluginConfig MCP 插件配置。
-// command 非空 → stdio 传输；url 非空 → HTTP/SSE 传输（url 优先）。
+// type 非空时按 type 判断传输方式；否则按 command/url 推断（向后兼容）。
 type PluginConfig struct {
-	Name    string   `json:"name,omitempty"`
-	Command string   `json:"command,omitempty"`
-	Args    []string `json:"args,omitempty"`
-	Env     []string `json:"env,omitempty"`
-	URL     string   `json:"url,omitempty"`
+	Name    string            `json:"name,omitempty"`
+	Type    string            `json:"type,omitempty"`    // "stdio" / "http" / "sse"
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`     // 子进程环境变量
+	URL     string            `json:"url,omitempty"`
 }
 
 // Kind 返回插件的传输类型："sse" / "stdio" / ""（未配置）。
 func (p PluginConfig) Kind() string {
-	switch {
-	case p.URL != "":
-		return "sse"
-	case p.Command != "":
-		return "stdio"
-	default:
-		return ""
+	// 优先使用 type 字段（Claude Code 兼容格式）
+	if p.Type != "" {
+		switch p.Type {
+		case "http", "sse":
+			return "sse"
+		case "stdio":
+			return "stdio"
+		}
 	}
+	// 向后兼容：无 type 字段时按 command/url 推断
+	if p.URL != "" {
+		return "sse"
+	}
+	if p.Command != "" {
+		return "stdio"
+	}
+	return ""
 }
 
 // PermissionConfig 权限配置
