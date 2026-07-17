@@ -110,7 +110,7 @@ func migrateEnvFile(configDir string) error {
 	var config map[string]interface{}
 
 	if data, err := os.ReadFile(loomcodePath); err == nil {
-		json.Unmarshal(data, &config)
+		_ = json.Unmarshal(data, &config)
 	}
 
 	if config == nil {
