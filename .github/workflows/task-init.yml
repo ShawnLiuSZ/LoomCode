@@ -1,0 +1,173 @@
+name: Initialize Task Document
+
+on:
+  create:
+
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to generate task.md for (testing only)'
+        required: true
+        type: string
+      branch:
+        description: 'Branch to push task.md to (testing only)'
+        required: true
+        type: string
+
+jobs:
+  create-task:
+    runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'create' && github.event.ref_type == 'branch') ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+      issues: read
+
+    steps:
+      - name: Extract info
+        id: extract
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "issue_number=${{ github.event.inputs.issue_number }}" >> $GITHUB_OUTPUT
+            echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
+          else
+            BRANCH="${{ github.event.ref }}"
+            # Extract issue number from last path segment of branch name
+            # Supports: feature/463-xxx, feature/dm/347-xxx, bugfix/FB-1029-xxx, 414-xxx
+            ISSUE_NUM=$(echo "$BRANCH" | sed 's|.*/||' | sed 's/^FB-//' | sed -n 's/^\([0-9]\+\).*/\1/p')
+            if [ -z "$ISSUE_NUM" ]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              echo "No issue number in branch name: $BRANCH"
+            else
+              echo "issue_number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+              echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Checkout branch
+        if: steps.extract.outputs.skip != 'true' && steps.extract.outputs.issue_number != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.extract.outputs.branch }}
+
+      - name: Generate task.md
+        if: steps.extract.outputs.skip != 'true' && steps.extract.outputs.issue_number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const issueNumber = parseInt('${{ steps.extract.outputs.issue_number }}', 10);
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+            const title = issue.title;
+            const body = issue.body || '（无描述）';
+            const taskDir = 'doc/version/current/tasks';
+            const taskFile = taskDir + '/task-' + issueNumber + '.md';
+            const archiveFile = 'doc/tasks/archived/task-' + issueNumber + '.md';
+            if (!fs.existsSync(taskDir)) {
+              fs.mkdirSync(taskDir, { recursive: true });
+            }
+            if (fs.existsSync(taskFile)) {
+              console.log('task-' + issueNumber + '.md already exists, skipping.');
+              return;
+            }
+            if (fs.existsSync(archiveFile)) {
+              const archived = fs.readFileSync(archiveFile, 'utf8');
+              const today = new Date().toISOString().split('T')[0];
+              const newBranch = '${{ steps.extract.outputs.branch }}';
+              const iterationLines = [
+                '',
+                '---',
+                '',
+                '## 🔄 新迭代 - ' + today,
+                '',
+                '> 本次从 `doc/tasks/archived/task-' + issueNumber + '.md` restore。以上为历史迭代记录（只读参考）；本次分支 `' + newBranch + '` 嘅新内容写喺下面。',
+                '',
+                '### 本次迭代 ADR',
+                '',
+                '<!-- 本次嘅决策 -->',
+                '',
+                '### 本次迭代 AI 开发过程',
+                '',
+                '<!-- 本次嘅过程记录 -->',
+                '',
+                '### 本次迭代 测试验收',
+                '',
+                '| 验收项 | 预期结果 | 实际结果 | 状态 |',
+                '|--------|---------|---------|------|',
+                '|        |         |         |      |',
+                '',
+              ];
+              fs.writeFileSync(taskFile, archived + iterationLines.join('\n'));
+              console.log('Restored task-' + issueNumber + '.md from archive with new iteration header.');
+              return;
+            }
+            const lines = [
+              '# Task-' + issueNumber + ': ' + title,
+              '',
+              '## 原始需求（只读 - 请勿修改）',
+              '',
+              '> 以下内容由 GitHub Action 从 Issue #' + issueNumber + ' 自动提取',
+              '',
+              body,
+              '',
+              '---',
+              '',
+              '## 进度核对表',
+              '',
+              '- [ ] 需求解析完成',
+              '- [ ] 技术方案确认',
+              '- [ ] 核心功能开发',
+              '- [ ] 单元测试',
+              '- [ ] 自测通过',
+              '- [ ] PR 已创建',
+              '- [ ] Code Review 通过',
+              '',
+              '## 变更日志与决策记录 (ADR)',
+              '',
+              '<!-- 每次技术转向或重要决策，按以下格式记录 -->',
+              '',
+              '## AI 开发过程（过程文档）',
+              '',
+              '<!-- 记录与 AI 协作的关键过程 -->',
+              '',
+              '### 需求解析',
+              '',
+              '{待填写}',
+              '',
+              '### 开发记录',
+              '',
+              '{待填写}',
+              '',
+              '## 知识沉淀（知识文档）',
+              '',
+              '<!-- 开发中发现的可复用知识 -->',
+              '',
+              '## 测试验收（验收文档）',
+              '',
+              '<!-- PR 合并前填写 -->',
+              '',
+              '| 验收项 | 预期结果 | 实际结果 | 状态 |',
+              '|--------|---------|---------|------|',
+              '|        |         |         |      |',
+              '',
+            ];
+            fs.writeFileSync(taskFile, lines.join('\n'));
+            console.log('Created ' + taskFile);
+
+      - name: Commit and push
+        if: steps.extract.outputs.skip != 'true' && steps.extract.outputs.issue_number != ''
+        env:
+          ISSUE_NUM: ${{ steps.extract.outputs.issue_number }}
+          BRANCH: ${{ steps.extract.outputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add doc/version/current/tasks/
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "docs: init task-${ISSUE_NUM}.md [auto]"
+          git push origin HEAD:${BRANCH}
