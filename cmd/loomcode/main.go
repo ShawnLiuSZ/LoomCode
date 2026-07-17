@@ -54,7 +54,7 @@ func main() {
 	// 迁移旧配置（首次启动时）
 	home, _ := os.UserHomeDir()
 	if home != "" {
-		config.MigrateOldConfigs(home)
+		_ = config.MigrateOldConfigs(home)
 	}
 
 	// 注册任务存储
