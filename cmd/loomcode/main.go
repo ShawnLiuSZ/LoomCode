@@ -143,9 +143,12 @@ func initRuntimeWithProject(chatMode bool, projectDir string) (*runtime, error) 
 		return nil, fmt.Errorf("provider 选择失败: %w", err)
 	}
 
-	p, err := createProvider(provCfg)
-	if err != nil {
-		return nil, fmt.Errorf("provider 创建失败: %w", err)
+	var p provider.Provider
+	if provCfg != nil {
+		p, err = createProvider(provCfg)
+		if err != nil {
+			return nil, fmt.Errorf("provider 创建失败: %w", err)
+		}
 	}
 
 	tools := tool.NewRegistry()
@@ -193,6 +196,15 @@ func runCommand(args []string) {
 	}
 	if r.plugins != nil {
 		defer r.plugins.DisconnectAll()
+	}
+
+	// 无 provider 配置时提示用户配置
+	if r.prov == nil {
+		fmt.Fprintln(os.Stderr, "未配置任何 provider，请先运行以下命令配置:")
+		fmt.Fprintln(os.Stderr, "  loomcode setup")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "或者手动编辑 ~/.loomcode/models.json 添加 providers。")
+		os.Exit(1)
 	}
 
 	ag := agent.New(r.prov, r.tools)
@@ -270,6 +282,9 @@ func selectProvider(cfg *config.Config) (*config.ProviderConfig, error) {
 	}
 	if name == "" && len(cfg.Providers) > 0 {
 		name = cfg.Providers[0].Name
+	}
+	if name == "" {
+		return nil, nil // no provider configured, allow startup
 	}
 	return cfg.GetProvider(name)
 }
@@ -410,6 +425,9 @@ func selectModel(provCfg *config.ProviderConfig) string {
 	if *flagModel != "" {
 		return *flagModel
 	}
+	if provCfg == nil {
+		return "default"
+	}
 	if provCfg.DefaultModel != "" {
 		return provCfg.DefaultModel
 	}
@@ -498,6 +516,15 @@ func chatCommand() {
 	}
 	if r.plugins != nil {
 		defer r.plugins.DisconnectAll()
+	}
+
+	// 无 provider 配置时提示用户配置
+	if r.prov == nil {
+		fmt.Fprintln(os.Stderr, "未配置任何 provider，请先运行以下命令配置:")
+		fmt.Fprintln(os.Stderr, "  loomcode setup")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "或者手动编辑 ~/.loomcode/models.json 添加 providers。")
+		os.Exit(1)
 	}
 
 	allProviders := []provider.Provider{r.prov}

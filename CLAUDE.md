@@ -76,7 +76,7 @@ Adding a new Tool: implement `Tool` interface in `internal/tool/`, register in `
 - `internal/provider/deepseek/provider.go` — tokenizer loaded via `sync.Once` pattern with `atomic.Bool` + mutex (double-check locking). Not `sync.Once` to allow test reset.
 - `internal/agent/coordinator.go` — planner/executor separation. `RunStream` uses goroutine fan-in with `ctx.Done()` on both text and error channels.
 - Session data stored in `~/.loomcode/sessions/` as JSONL (first line = meta, rest = messages).
-- Config search order: `--config` > `./loomcode.json` > `~/.loomcode/loomcode.json` > `./models.json` > `~/.loomcode/models.json` > defaults.
+- Config search order: `~/.loomcode/models.json` + `~/.loomcode/loomcode.json` merged > `./models.json` + `./loomcode.json` merged > project `.claude/loomcode.json` > defaults.
 
 ## Bug Audit
 
