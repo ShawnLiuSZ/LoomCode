@@ -25,19 +25,19 @@ MIMO_API_KEY=sk-mimo456
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 验证 loomcode.json 创建
-	loomcodePath := filepath.Join(configDir, "loomcode.json")
-	if _, err := os.Stat(loomcodePath); os.IsNotExist(err) {
-		t.Fatal("loomcode.json not created")
+	// 验证 settings.json 创建
+	settingsPath := filepath.Join(configDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		t.Fatal("settings.json not created")
 	}
 
 	// 验证内容
-	data, _ := os.ReadFile(loomcodePath)
+	data, _ := os.ReadFile(settingsPath)
 	if !strings.Contains(string(data), "DEEPSEEK_API_KEY") {
-		t.Error("DEEPSEEK_API_KEY not found in loomcode.json")
+		t.Error("DEEPSEEK_API_KEY not found in settings.json")
 	}
 	if !strings.Contains(string(data), "sk-test123") {
-		t.Error("value sk-test123 not found in loomcode.json")
+		t.Error("value sk-test123 not found in settings.json")
 	}
 
 	// 验证 .env 备份创建
@@ -62,9 +62,9 @@ func TestMigrateEnvFileNoEnv(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 不应创建 loomcode.json
-	if _, err := os.Stat(filepath.Join(configDir, "loomcode.json")); !os.IsNotExist(err) {
-		t.Error("loomcode.json should not be created when no .env exists")
+	// 不应创建 settings.json
+	if _, err := os.Stat(filepath.Join(configDir, "settings.json")); !os.IsNotExist(err) {
+		t.Error("settings.json should not be created when no .env exists")
 	}
 }
 
@@ -84,9 +84,9 @@ func TestMigrateEnvFileEmptyEnv(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 空 env 不应创建 loomcode.json
-	if _, err := os.Stat(filepath.Join(configDir, "loomcode.json")); !os.IsNotExist(err) {
-		t.Error("loomcode.json should not be created for empty .env")
+	// 空 env 不应创建 settings.json
+	if _, err := os.Stat(filepath.Join(configDir, "settings.json")); !os.IsNotExist(err) {
+		t.Error("settings.json should not be created for empty .env")
 	}
 }
 
@@ -95,9 +95,9 @@ func TestMigrateEnvFilePreservesExisting(t *testing.T) {
 	configDir := filepath.Join(tmpDir, ".loomcode")
 	os.MkdirAll(configDir, 0755)
 
-	// 创建已有的 loomcode.json
+	// 创建已有的 settings.json
 	existing := `{"default_provider": "deepseek"}`
-	os.WriteFile(filepath.Join(configDir, "loomcode.json"), []byte(existing), 0644)
+	os.WriteFile(filepath.Join(configDir, "settings.json"), []byte(existing), 0644)
 
 	// 创建 .env
 	envContent := `NEW_API_KEY=sk-new789
@@ -109,14 +109,14 @@ func TestMigrateEnvFilePreservesExisting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// 验证合并后的 loomcode.json 包含原有字段和新 env
-	data, _ := os.ReadFile(filepath.Join(configDir, "loomcode.json"))
+	// 验证合并后的 settings.json 包含原有字段和新 env
+	data, _ := os.ReadFile(filepath.Join(configDir, "settings.json"))
 	content := string(data)
 	if !strings.Contains(content, "default_provider") {
 		t.Error("existing default_provider field was lost")
 	}
 	if !strings.Contains(content, "NEW_API_KEY") {
-		t.Error("NEW_API_KEY not found in loomcode.json")
+		t.Error("NEW_API_KEY not found in settings.json")
 	}
 }
 
@@ -135,7 +135,7 @@ ANOTHER='single-quoted'
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	data, _ := os.ReadFile(filepath.Join(configDir, "loomcode.json"))
+	data, _ := os.ReadFile(filepath.Join(configDir, "settings.json"))
 	var config map[string]interface{}
 	json.Unmarshal(data, &config)
 

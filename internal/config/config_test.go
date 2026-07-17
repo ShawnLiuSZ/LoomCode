@@ -142,11 +142,11 @@ func TestLoadDefault(t *testing.T) {
 }
 
 func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
-	// 模拟项目目录： loomcode.json 只有空数组，没有 provider
+	// 模拟项目目录： settings.json 只有空数组，没有 provider
 	projectDir := t.TempDir()
 	globalDir := t.TempDir()
 
-	emptyLocal := filepath.Join(projectDir, "loomcode.json")
+	emptyLocal := filepath.Join(projectDir, "settings.json")
 	if err := os.WriteFile(emptyLocal, []byte(`{"providers": []}`), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
 	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	globalConfig := filepath.Join(globalConfigDir, "loomcode.json")
+	globalConfig := filepath.Join(globalConfigDir, "settings.json")
 	content := `{
   "default_provider": "mimo",
   "providers": [
@@ -319,8 +319,8 @@ func TestLoadDefault_LoomcodeJsonPriorityOverModelsJson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loomcodeJSON := filepath.Join(globalConfigDir, "loomcode.json")
-	if err := os.WriteFile(loomcodeJSON, []byte(`{
+	settingsJSON := filepath.Join(globalConfigDir, "settings.json")
+	if err := os.WriteFile(settingsJSON, []byte(`{
   "default_provider": "openai",
   "providers": [
     {
@@ -360,9 +360,9 @@ func TestLoadDefault_LoomcodeJsonPriorityOverModelsJson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDefault() error: %v", err)
 	}
-	// loomcode.json has higher priority than models.json
+	// settings.json has higher priority than models.json
 	if cfg.DefaultProvider != "openai" {
-		t.Errorf("DefaultProvider = %q, want %q (loomcode.json should win)", cfg.DefaultProvider, "openai")
+		t.Errorf("DefaultProvider = %q, want %q (settings.json should win)", cfg.DefaultProvider, "openai")
 	}
 	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "openai" {
 		t.Errorf("expected provider 'openai', got %+v", cfg.Providers)

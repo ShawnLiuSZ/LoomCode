@@ -139,12 +139,9 @@ func Load(path string) (*Config, error) {
 // LoadDefault 按优先级查找并加载配置（仅支持 JSON）
 //
 // 优先级（高到低）：
-//   1. --config flag
-//   2. ./loomcode.json（项目级主配置）
-//   3. ~/.loomcode/loomcode.json（全局主配置）
-//   4. ./models.json（项目级模型配置）
-//   5. ~/.loomcode/models.json（全局模型配置）
-//   6. 内置默认
+//   1. ~/.loomcode/settings.json（全局配置）
+//   2. ~/.loomcode/models.json（全局模型配置）
+//   3. 内置默认
 func LoadDefault() (*Config, error) {
 	home, _ := os.UserHomeDir()
 
@@ -155,17 +152,11 @@ func LoadDefault() (*Config, error) {
 
 	var paths []configPath
 
-	// 项目级
-	paths = append(paths,
-		configPath{"./loomcode.json", "main"},
-		configPath{"./models.json", "models"},
-	)
-
 	// 全局级
 	if home != "" {
 		dir := filepath.Join(home, ".loomcode")
 		paths = append(paths,
-			configPath{filepath.Join(dir, "loomcode.json"), "main"},
+			configPath{filepath.Join(dir, "settings.json"), "main"},
 			configPath{filepath.Join(dir, "models.json"), "models"},
 		)
 	}

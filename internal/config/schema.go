@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 )
 
-// GenerateJSONSchema 返回描述 loomcode.json 配置结构的 JSON Schema（Draft 7）字符串。
+// GenerateJSONSchema 返回描述 settings.json 配置结构的 JSON Schema（Draft 7）字符串。
 // 编辑器可据此提供自动补全与校验。description 字段源自 Go 结构体注释。
 func GenerateJSONSchema() string {
 	schema := map[string]interface{}{
 		"$schema":     "http://json-schema.org/draft-07/schema#",
-		"$id":         "https://github.com/ShawnLiuSZ/loomcode/schema/loomcode.json",
+		"$id":         "https://github.com/ShawnLiuSZ/loomcode/schema/settings.json",
 		"title":       "LoomCode CLI Config",
-		"description": "LoomCode CLI 顶层配置结构（loomcode.json）",
+		"description": "LoomCode CLI 顶层配置结构（settings.json）",
 		"type":        "object",
 		"properties": map[string]interface{}{
 			"default_provider": map[string]interface{}{

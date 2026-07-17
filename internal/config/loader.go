@@ -32,7 +32,7 @@ func LoadWithProject(projectDir string) (*Config, error) {
 }
 
 // loadGlobalConfig loads the global config from ~/.loomcode/.
-// Merges loomcode.json (env, plugins, etc.) with models.json (providers, default_provider).
+// Merges settings.json (env, plugins, permissions, etc.) with models.json (providers, default_provider).
 func loadGlobalConfig() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -45,12 +45,12 @@ func loadGlobalConfig() (*Config, error) {
 	modelsPath := filepath.Join(dir, "models.json")
 	modelsCfg, _ := Load(modelsPath)
 
-	// Load loomcode.json (env, plugins, permissions, etc.)
-	loomcodePath := filepath.Join(dir, "loomcode.json")
-	loomcodeCfg, _ := Load(loomcodePath)
+	// Load settings.json (env, plugins, permissions, etc.)
+	settingsPath := filepath.Join(dir, "settings.json")
+	settingsCfg, _ := Load(settingsPath)
 
-	// Merge: models.json provides providers, loomcode.json provides env/plugins
-	merged := mergeConfigs(modelsCfg, loomcodeCfg)
+	// Merge: models.json provides providers, settings.json provides env/plugins
+	merged := mergeConfigs(modelsCfg, settingsCfg)
 
 	if merged == nil {
 		return DefaultConfig(), nil

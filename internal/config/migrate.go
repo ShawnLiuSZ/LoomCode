@@ -82,7 +82,7 @@ func migrateTOML(configDir string) error {
 	return nil
 }
 
-// migrateEnvFile 将 .env 中的 keys 迁移到 loomcode.json 的 env 字段
+// migrateEnvFile 将 .env 中的 keys 迁移到 settings.json 的 env 字段
 func migrateEnvFile(configDir string) error {
 	envPath := filepath.Join(configDir, ".env")
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
@@ -105,11 +105,11 @@ func migrateEnvFile(configDir string) error {
 		return fmt.Errorf("backup .env: %w", err)
 	}
 
-	// 读取或创建 loomcode.json
-	loomcodePath := filepath.Join(configDir, "loomcode.json")
+	// 读取或创建 settings.json
+	settingsPath := filepath.Join(configDir, "settings.json")
 	var config map[string]interface{}
 
-	if data, err := os.ReadFile(loomcodePath); err == nil {
+	if data, err := os.ReadFile(settingsPath); err == nil {
 		_ = json.Unmarshal(data, &config)
 	}
 
@@ -120,20 +120,20 @@ func migrateEnvFile(configDir string) error {
 	// 添加 env 字段
 	config["env"] = envMap
 
-	// 写入 loomcode.json
+	// 写入 settings.json
 	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(loomcodePath, jsonData, 0644); err != nil {
-		return fmt.Errorf("write loomcode.json: %w", err)
+	if err := os.WriteFile(settingsPath, jsonData, 0644); err != nil {
+		return fmt.Errorf("write settings.json: %w", err)
 	}
 
 	// 删除原 .env 文件
 	os.Remove(envPath)
 
-	fmt.Fprintf(os.Stderr, "Migrated .env → loomcode.json (backup: %s)\n", backupPath)
+	fmt.Fprintf(os.Stderr, "Migrated .env → settings.json (backup: %s)\n", backupPath)
 	return nil
 }
 

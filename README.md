@@ -127,7 +127,7 @@ loomcode setup
 
 **全局配置**（`~/.loomcode/`）：
 1. `~/.loomcode/models.json`（模型定义）
-2. `~/.loomcode/loomcode.json`（env、plugins 等）
+2. `~/.loomcode/settings.json`（env、plugins、permissions 等）
 
 **项目配置**（`.loomcode/`，项目根目录下）：
 3. `.loomcode/settings.json`（共享配置，可提交到 git）
