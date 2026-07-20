@@ -92,10 +92,10 @@ type App struct {
 	resumeIdx        int
 
 	// 成本
-	costTotal   atomic.Uint64
-	costSession atomic.Uint64
-	costLast    atomic.Uint64
-	costBudget  float64
+	costTotal      atomic.Uint64
+	costSession    atomic.Uint64
+	costLast       atomic.Uint64
+	costBudgetBits atomic.Uint64 // 预算上限（float64 位模式），原子读写避免与 Agent goroutine 竞争
 
 	// 会话保存状态
 	savedMsgCount int // 已保存的消息数量
@@ -122,14 +122,14 @@ type App struct {
 	program *tea.Program
 
 	// Approval
-	pendingApproval *pendingWrite
+	pendingApproval atomic.Pointer[pendingWrite]
 
 	// 工作区外文件访问授权
 	trust          *control.WorkspaceTrust
-	pendingOutside *pendingOutsideAccess
+	pendingOutside atomic.Pointer[pendingOutsideAccess]
 
 	// 请求取消
-	cancelFunc context.CancelFunc
+	cancelFunc atomic.Pointer[cancelHolder]
 
 	// 任务队列
 	taskQueue []string
@@ -186,6 +186,12 @@ type pendingOutsideAccess struct {
 type outsideAccessDecision struct {
 	granted   bool
 	permanent bool
+}
+
+// cancelHolder 包装 context.CancelFunc，使其可通过 atomic.Pointer 无锁读写，
+// 消除 Agent goroutine 调用取消函数与 TUI 主 goroutine 设置/清除取消函数之间的数据竞争。
+type cancelHolder struct {
+	fn context.CancelFunc
 }
 
 type approvalMsg struct{}
@@ -360,11 +366,14 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 			}
 		}
 		sessionCost := costFloatFromUint64(app.costSession.Load())
-		if app.costBudget > 0 && sessionCost >= app.costBudget && app.cancelFunc != nil {
-			app.cancelFunc()
+		budget := math.Float64frombits(app.costBudgetBits.Load())
+		if budget > 0 && sessionCost >= budget {
+			if ch := app.cancelFunc.Load(); ch != nil && ch.fn != nil {
+				ch.fn()
+			}
 			// 在 Agent goroutine 中不能直接写 a.messages，通过 program.Send 路由到 BubbleTea 主 goroutine。
 			if app.program != nil {
-				app.program.Send(costBudgetExceededMsg{sessionCost: sessionCost, budget: app.costBudget})
+				app.program.Send(costBudgetExceededMsg{sessionCost: sessionCost, budget: budget})
 			}
 		}
 	})
@@ -412,13 +421,13 @@ func (a *App) PromptAndAllow(path string) error {
 		return fmt.Errorf("TUI not ready or trust not configured")
 	}
 	done := make(chan outsideAccessDecision, 1)
-	a.pendingOutside = &pendingOutsideAccess{
+	a.pendingOutside.Store(&pendingOutsideAccess{
 		path: path,
 		done: done,
-	}
+	})
 	a.program.Send(outsideAccessMsg{})
 	decision := <-done
-	a.pendingOutside = nil
+	a.pendingOutside.Store(nil)
 	if !decision.granted {
 		return nil
 	}
@@ -453,7 +462,7 @@ func (a *App) AddApprovalGuard(perm *control.Permission) {
 		if a.program != nil {
 			// 必须先把 pw 挂到 a.pendingApproval，handleKey 才会往 pw.decision 喂值；
 			// 否则下方 <-pw.decision 会永久阻塞，导致 TUI 卡死。
-			a.pendingApproval = pw
+			a.pendingApproval.Store(pw)
 			a.program.Send(approvalMsg{})
 		}
 		if <-pw.decision {
@@ -693,7 +702,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamChars = 0
 		a.streamMu.Unlock()
 		a.loading = false
-		a.cancelFunc = nil
+		a.cancelFunc.Store(nil)
 		a.lastStep = 0
 		a.lastTool = ""
 		a.activityPhase = ""
@@ -709,7 +718,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamReasoningBuf = ""
 		a.streamMu.Unlock()
 		a.loading = false
-		a.cancelFunc = nil
+		a.cancelFunc.Store(nil)
 		a.lastStep = 0
 		a.lastTool = ""
 		a.activityPhase = ""
@@ -780,19 +789,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		switch key {
 		case "enter":
-			pw := a.pendingApproval
-			a.pendingApproval = nil
+			pw := a.pendingApproval.Load()
+			a.pendingApproval.Store(nil)
 			pw.decision <- true
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			// P2-4：恢复输入框焦点。
 			return a, a.textArea.Focus()
 		case "esc":
-			pw := a.pendingApproval
-			a.pendingApproval = nil
+			pw := a.pendingApproval.Load()
+			a.pendingApproval.Store(nil)
 			pw.decision <- false
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "操作已拒绝"})
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
@@ -803,25 +812,25 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		switch key {
 		case "t":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: true, permanent: false}
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, a.textArea.Focus()
 		case "p":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: true, permanent: true}
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
 			return a, a.textArea.Focus()
 		case "n", "esc":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: false, permanent: false}
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "已拒绝访问工作区外文件"})
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
@@ -955,9 +964,11 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		})
 
 	case "esc":
-		if a.loading && a.cancelFunc != nil {
-			a.cancelFunc()
-			a.cancelFunc = nil
+		if a.loading {
+			if ch := a.cancelFunc.Load(); ch != nil && ch.fn != nil {
+				ch.fn()
+			}
+			a.cancelFunc.Store(nil)
 			a.loading = false
 			// 不在此追加"请求已取消"消息：agent goroutine 因 ctx 取消返回 error 后，
 			// streamErrorMsg 会统一追加 friendlyError("context canceled") = "请求已取消。"。
@@ -1060,7 +1071,7 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: input, Timestamp: time.Now()})
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancelFunc = cancel
+	a.cancelFunc.Store(&cancelHolder{fn: cancel})
 	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 	return a, a.runAgent(ctx, input)
@@ -1269,7 +1280,7 @@ func (a *App) handleGoalCmd(parts []string) (tea.Model, tea.Cmd) {
 
 func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		if a.costBudget <= 0 {
+		if a.getCostBudget() <= 0 {
 			a.messages = append(a.messages, chatMessage{
 				Role:    "system",
 				Content: "当前未设置预算。\n\n使用 /budget <amount> 设置预算，例如 /budget 1.00",
@@ -1277,14 +1288,14 @@ func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 		} else {
 			a.messages = append(a.messages, chatMessage{
 				Role:    "system",
-				Content: fmt.Sprintf("预算: $%.2f | 已用: $%.4f | 剩余: $%.4f\n\n使用 /budget clear 清除预算", a.costBudget, costFloatFromUint64(a.costSession.Load()), a.costBudget-costFloatFromUint64(a.costSession.Load())),
+				Content: fmt.Sprintf("预算: $%.2f | 已用: $%.4f | 剩余: $%.4f\n\n使用 /budget clear 清除预算", a.getCostBudget(), costFloatFromUint64(a.costSession.Load()), a.getCostBudget()-costFloatFromUint64(a.costSession.Load())),
 			})
 		}
 		return a, nil
 	}
 
 	if parts[1] == "clear" {
-		a.costBudget = 0
+		a.setCostBudget(0)
 		a.agent.SetCostBudget(0)
 		a.messages = append(a.messages, chatMessage{
 			Role:    "system",
@@ -1302,7 +1313,7 @@ func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	a.costBudget = amount
+	a.setCostBudget(amount)
 	a.agent.SetCostBudget(amount)
 	a.messages = append(a.messages, chatMessage{
 		Role:    "system",
@@ -1654,12 +1665,12 @@ func (a *App) View() string {
 	}
 
 	approvalH := 0
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		approvalH = lipgloss.Height(a.renderApproval()) + 2 // +2 for surrounding \n
 	}
 
 	outsideH := 0
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		outsideH = lipgloss.Height(a.renderOutsideAccess()) + 2 // +2 for surrounding \n
 	}
 
@@ -1723,14 +1734,14 @@ func (a *App) View() string {
 	}
 
 	// Approval diff
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		sb.WriteString("\n")
 		sb.WriteString(a.renderApproval())
 		sb.WriteString("\n")
 	}
 
 	// 工作区外文件访问授权提示
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		sb.WriteString("\n")
 		sb.WriteString(a.renderOutsideAccess())
 		sb.WriteString("\n")
@@ -2195,11 +2206,17 @@ func costUint64FromFloat(v float64) uint64 {
 	return math.Float64bits(v)
 }
 
+// getCostBudget 原子读取预算上限（float64 位模式还原）。
+func (a *App) getCostBudget() float64 { return math.Float64frombits(a.costBudgetBits.Load()) }
+
+// setCostBudget 原子写入预算上限（float64 转位模式存储）。
+func (a *App) setCostBudget(v float64) { a.costBudgetBits.Store(math.Float64bits(v)) }
+
 func (a *App) renderCost() string {
 	sessionCost := costFloatFromUint64(a.costSession.Load())
 	var display string
-	if a.costBudget > 0 {
-		display = fmt.Sprintf("$%.4f/$%.2f", sessionCost, a.costBudget)
+	if a.getCostBudget() > 0 {
+		display = fmt.Sprintf("$%.4f/$%.2f", sessionCost, a.getCostBudget())
 	} else {
 		display = fmt.Sprintf("$%.4f", sessionCost)
 	}
@@ -2224,7 +2241,7 @@ func (a *App) renderContextUsage() string {
 }
 
 func (a *App) renderApproval() string {
-	pw := a.pendingApproval
+	pw := a.pendingApproval.Load()
 	var sb strings.Builder
 
 	sb.WriteString(approvalTitleStyle.Render(fmt.Sprintf("  ⚠ %s: %s", pw.toolName, pw.path)))
@@ -2243,7 +2260,7 @@ func (a *App) renderApproval() string {
 }
 
 func (a *App) renderOutsideAccess() string {
-	po := a.pendingOutside
+	po := a.pendingOutside.Load()
 	var sb strings.Builder
 
 	sb.WriteString(approvalTitleStyle.Render(fmt.Sprintf("  ⚠ 请求访问工作区外文件: %s", po.path)))
@@ -2554,7 +2571,7 @@ func (a *App) processQueue() tea.Cmd {
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: next, Timestamp: time.Now()})
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancelFunc = cancel
+	a.cancelFunc.Store(&cancelHolder{fn: cancel})
 	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 
