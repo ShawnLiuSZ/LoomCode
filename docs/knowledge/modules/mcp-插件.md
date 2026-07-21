@@ -43,19 +43,21 @@ MCP（Model Context Protocol）插件系统让 LoomCode 能接入外部工具。
 
 ## 配置方式
 
-```toml
-# loomcode.toml
-
-# stdio 模式
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# SSE 模式
-[[plugins]]
-name = "remote-tool"
-url  = "https://mcp.example.com/sse"
+```json
+// settings.json 或 models.json 的 plugins 数组
+{
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    },
+    {
+      "name": "remote-tool",
+      "url": "https://mcp.example.com/sse"
+    }
+  ]
+}
 ```
 
 ## 连接流程

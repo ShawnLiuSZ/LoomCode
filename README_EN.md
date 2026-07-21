@@ -15,7 +15,7 @@ English | [简体中文](README.md)
 
 > **Rename Notice (2026-07-13)**: This project was formerly named **Helix**. It has been renamed to **LoomCode** as of today. The CLI command changed from `helix` to `loom` / `loomcode` (both are equivalent). The config directory changed from `~/.helix/` to `~/.loomcode/`. The repository URL will be migrated to `ShawnLiuSZ/loomcode` in the near future.
 
-**LoomCode** is a pure-CLI, Go-based, extensible multi-model agent programming tool. It combines the best ideas from [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) and [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code), with deep optimizations for DeepSeek V4 and Xiaomi MiMo, while supporting any OpenAI-compatible provider through a TOML config file.
+**LoomCode** is a pure-CLI, Go-based, extensible multi-model agent programming tool. It combines the best ideas from [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix) and [MiMo-Code](https://github.com/XiaomiMiMo/MiMo-Code), with deep optimizations for DeepSeek V4 and Xiaomi MiMo, while supporting any OpenAI-compatible provider through a JSON config file.
 
 ---
 
@@ -74,7 +74,7 @@ make build
 loomcode setup
 ```
 
-Five-step wizard: choose provider → enter API key → pick model → generate `~/.loomcode/models.toml` (TOML) + `.env` → emit JSON Schema. (For manual setup, `~/.loomcode/models.json` is recommended.)
+Five-step wizard: choose provider → enter API key → pick model → generate `~/.loomcode/settings.json` (JSON) + `.env` → emit JSON Schema. (For manual setup, `~/.loomcode/settings.json` and `~/.loomcode/models.json` are recommended.)
 
 ### Launch TUI
 
@@ -109,7 +109,7 @@ loomcode schema > ~/.loomcode/schema.json
 |---------|-------------|
 | `loomcode` / `loomcode chat` / `loomcode tui` | Start interactive TUI (default) |
 | `loomcode run <task>` | One-shot task; also accepts task content from stdin |
-| `loomcode setup` | Interactive setup wizard; generates `~/.loomcode/models.toml` + `.env` |
+| `loomcode setup` | Interactive setup wizard; generates `~/.loomcode/settings.json` + `.env` |
 | `loomcode schema` | Output JSON Schema for config validation |
 | `loomcode dashboard [addr]` | Launch web dashboard (default `:8080`) |
 
@@ -223,15 +223,18 @@ This lets the agent "remember" prior discussions, conventions, and decisions, av
 
 ### Config File
 
-Provider configs support **TOML** and **JSON**. Recommended locations:
+LoomCode uses **JSON** for its live configuration. Config files are split by responsibility and merged at load time:
 
-- `~/.loomcode/models.json` (global, JSON, recommended)
-- `~/.loomcode/models.toml` (global, TOML)
-- `./models.json` / `./models.toml` (project-level)
+- `~/.loomcode/models.json` (global) — model config (providers + default_provider)
+- `~/.loomcode/settings.json` (global) — main config (env, plugins, permissions, search, agent, etc.)
+- `<project>/.loomcode/settings.json` (project-level, committable) — overrides global config
+- `<project>/.loomcode/settings.local.json` (project-level, local override, gitignored) — overrides `settings.json`
 
-Legacy paths (`loomcode.toml`, `~/.loomcode/loomcode.toml`, `~/.loomcode/config.toml`) remain compatible but are deprecated.
+Load order (from `internal/config/loader.go`): first merge `~/.loomcode/{models.json, settings.json}` (global), then overlay `<project>/.loomcode/{settings.json, settings.local.json}` (project overrides global); `settings.local.json` overrides `settings.json`. Precedence: **project > global, local > shared**.
 
-See [`models.example.json`](models.example.json) for a JSON example and [`loomcode.example.toml`](loomcode.example.toml) for a TOML example.
+> Legacy TOML config files (`loomcode.toml` / `config.toml` / `models.toml`) are accepted only as migration input and are auto-migrated to JSON on startup; they are deprecated. The old paths `./loomcode.json` and `.claude/loomcode.json` are no longer used.
+
+See [`settings.example.json`](settings.example.json) (main config) and [`models.example.json`](models.example.json) (model config) for complete examples.
 
 ```json
 {
@@ -242,7 +245,7 @@ See [`models.example.json`](models.example.json) for a JSON example and [`loomco
       "display_name": "DeepSeek",
       "kind": "deepseek",
       "base_url": "https://api.deepseek.com",
-      "api_key_env": "DEEPSEEK_API_KEY",
+      "api_key": "${DEEPSEEK_API_KEY}",
       "default_model": "deepseek-v4-flash",
       "models": [
         {
@@ -277,7 +280,7 @@ For custom OpenAI-compatible providers, set `kind` to `openai` and provide the c
 
 ### Xiaomi MiMo Connection Modes
 
-MiMo currently only supports API Key authentication (OAuth is not yet implemented). It provides two connection modes; use the corresponding `base_url` and `api_key_env`:
+MiMo currently only supports API Key authentication (OAuth is not yet implemented). It provides two connection modes; use the corresponding `base_url` and `api_key: "${ENV_VAR}"`:
 
 | Mode | Description | `base_url` | API Key format |
 |------|-------------|------------|----------------|
@@ -293,7 +296,7 @@ Pay-As-You-Go example:
       "name": "mimo",
       "kind": "mimo",
       "base_url": "https://api.xiaomimimo.com/v1",
-      "api_key_env": "MIMO_API_KEY",
+      "api_key": "${MIMO_API_KEY}",
       "default_model": "mimo-v2.5-pro"
     }
   ]
@@ -309,7 +312,7 @@ Token Plan example:
       "name": "mimo-token-plan",
       "kind": "mimo",
       "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-      "api_key_env": "MIMO_TOKEN_PLAN_KEY",
+      "api_key": "${MIMO_TOKEN_PLAN_KEY}",
       "default_model": "mimo-v2.5-pro"
     }
   ]
@@ -354,17 +357,28 @@ Other providers (MiMo / OpenAI) currently fall back to a rough character-based e
 loomcode schema > ~/.loomcode/schema.json
 ```
 
-In VS Code, add this to the top of your TOML config:
-
-```toml
-#:schema ~/.loomcode/schema.json
-```
-
-You'll get field autocomplete, type checks, and enum hints. JSON configs can also be associated with `schema.json` in your editor.
+Associate `schema.json` with your `settings.json` / `models.json` in your editor (VS Code, Vim, etc.) to get field autocomplete, type checks, and enum hints.
 
 ### API Key
 
-The config file uses `api_key_env` to reference an environment variable. You can also set `api_key` directly, which takes precedence over `api_key_env`:
+The `api_key` field supports two formats:
+
+**Option 1: `${ENV_VAR}` references an environment variable (recommended)**
+
+```json
+{
+  "providers": [
+    {
+      "name": "deepseek",
+      "api_key": "${DEEPSEEK_API_KEY}"
+    }
+  ]
+}
+```
+
+Environment-variable resolution precedence: 1) the `env` field of `settings.json`, then 2) the system environment.
+
+**Option 2: plaintext key (for testing / local dev)**
 
 ```json
 {
@@ -377,7 +391,9 @@ The config file uses `api_key_env` to reference an environment variable. You can
 }
 ```
 
-> Security recommendation: prefer `api_key_env` + `.env` to avoid committing plaintext secrets.
+> Security recommendation: use `api_key: "${ENV_VAR}"` in production to avoid committing plaintext secrets.
+
+> The legacy `api_key_env` field still works but emits a deprecation warning; migrate to `api_key: "${ENV_VAR}"`.
 
 ### Switching Models
 
@@ -416,19 +432,22 @@ OPENAI_API_KEY=
 
 ## MCP Plugins
 
-Configure MCP servers in your config file (`~/.loomcode/models.json` recommended, or `~/.loomcode/models.toml` / project-level equivalents) to extend tool capabilities:
+Configure MCP servers in your config file via the `plugins` array (`~/.loomcode/settings.json` or `~/.loomcode/models.json`) to extend tool capabilities. The canonical key is `plugins`; a `mcpServers` object form is also accepted and merged into `plugins` automatically. Plugin `kind` is `stdio` or `sse` (inferred from `command`/`url` when `type` is omitted):
 
-```toml
-# stdio mode
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# HTTP/SSE mode
-[[plugins]]
-name = "remote-tool"
-url  = "https://mcp.example.com/sse"
+```json
+{
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    },
+    {
+      "name": "remote-tool",
+      "url": "https://mcp.example.com/sse"
+    }
+  ]
+}
 ```
 
 ---
@@ -451,7 +470,7 @@ Each skill is a directory containing a `SKILL.md` file. Use `/skills` to list al
 | Layer | Technology |
 |-------|------------|
 | Language | Go (CGO_ENABLED=0) |
-| Config | TOML + JSON Schema |
+| Config | JSON + JSON Schema |
 | TUI | Bubble Tea + Lip Gloss |
 | Memory Storage | SQLite FTS5 |
 | Plugin Protocol | MCP (stdio + HTTP) |

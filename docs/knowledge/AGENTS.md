@@ -63,7 +63,7 @@ _专为 ClaudeCode、Codex、LoomCode 等智能体的快速访问：_
 |------|------|
 | **Provider 插件化** | Adapter 工厂模式，配置驱动接入新厂商，无需修改代码 |
 | **Capability-Driven** | Agent 行为由 Provider 的 `Capabilities` 声明驱动，非 if-else 判断厂商 |
-| **Config Over Code** | 模型、工具、插件全部 TOML 声明 |
+| **Config Over Code** | 模型、工具、插件全部 JSON 声明 |
 | **Compose Over Inherit** | 接口组合构建复杂行为，避免深层继承 |
 | **Single Binary** | CGO_ENABLED=0，零依赖部署 |
 
@@ -73,8 +73,8 @@ _专为 ClaudeCode、Codex、LoomCode 等智能体的快速访问：_
 
 | 任务 | 入口 | 关键调用链 |
 |------|------|-----------|
-| 新增 Provider | `loomcode.toml` | 配置 `[[providers]]` → `kind="openai"` → 设置 `api_key_env` |
+| 新增 Provider | `settings.json` / `models.json` | 配置 `providers[]` → `kind="openai"` → 设置 `api_key: "${ENV}"` |
 | 新增工具 | `internal/tool/` | 实现 `Tool` 接口 → 在 `RegisterDefaults()` 注册 |
-| 新增 MCP 插件 | `loomcode.toml` | 配置 `[[plugins]]` → stdio(command) 或 SSE(url) |
+| 新增 MCP 插件 | `settings.json` / `models.json` | 配置 `plugins[]` → stdio(command) 或 sse(url) |
 | 恢复会话 | CLI `--session <id>` | `session.Manager.Get()` → `App.RestoreSession()` |
 | 编辑回退 | TUI `/rewind` | `CheckpointManager` → `~/.loomcode/checkpoints/` |

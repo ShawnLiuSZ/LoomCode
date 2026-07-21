@@ -9,7 +9,7 @@ This file provides guidance to CodeBuddy Code when working with code in this rep
 **LoomCode CLI** 是一个纯 CLI 形态、基于 Go 语言的可扩展多模型 Agent 编程工具。融合 DeepSeek-Reasonix 和 MiMo-Code 的优点，为 DeepSeek V4 和 Xiaomi MiMo 大模型提供深度优化，同时支持任意 OpenAI 兼容厂商通过配置接入。
 
 - 语言: Go（CGO_ENABLED=0 单二进制分发）
-- 配置: TOML
+- 配置: JSON（settings.json + models.json）
 - 插件协议: MCP（stdio + HTTP）
 - 记忆存储: SQLite FTS5
 - TUI: Bubble Tea + Lip Gloss
@@ -46,7 +46,7 @@ make release        # goreleaser build --snapshot --clean
 ```
 cmd/loomcode/main.go          ← CLI 入口
 internal/
-  config/                  ← TOML 配置加载、环境变量注入
+  config/                  ← JSON 配置加载、环境变量注入
   provider/                ← 多厂商模型接入（核心可扩展层）
     ├── registry.go        ← Adapter 注册中心
     ├── adapter.go         ← Adapter 工厂接口
@@ -81,9 +81,9 @@ internal/
 
 ## 核心设计原则
 
-1. **Provider 插件化** — Adapter 工厂模式，任何 OpenAI 兼容厂商通过 TOML 配置接入，无需修改代码
+1. **Provider 插件化** — Adapter 工厂模式，任何 OpenAI 兼容厂商通过 JSON 配置接入，无需修改代码
 2. **Capability-Driven** — Agent 行为由 Provider 的 `Capabilities` 声明驱动，不做 if-else 厂商判断
-3. **Config Over Code** — 模型、工具、插件全部 TOML 声明
+3. **Config Over Code** — 模型、工具、插件全部 JSON 声明
 4. **Compose Over Inherit** — 接口组合构建复杂行为
 5. **Single Binary** — CGO_ENABLED=0，零依赖部署
 
@@ -93,7 +93,7 @@ internal/
 
 ```
 1. go mod init + 目录结构
-2. TOML 配置加载
+2. JSON 配置加载
 3. OpenAI 通用 Provider
 4. DeepSeek Provider
 5. 工具注册 + 执行
@@ -109,18 +109,26 @@ internal/
 
 ## Provider 扩展方式
 
-接入新厂商只需编辑 `loomcode.toml`，使用 `kind = "openai"` 即可，无需写代码：
+接入新厂商只需编辑 `settings.json`（或 `models.json`），使用 `kind = "openai"` 即可，无需写代码：
 
-```toml
-[[providers]]
-name         = "my-provider"
-display_name = "我的厂商"
-kind         = "openai"
-base_url     = "https://api.example.com/v1"
-api_key_env  = "MY_API_KEY"
-
-  [[providers.models]]
-  id   = "my-model"
-  name = "My Model"
-  context_window = 32768
+```json
+{
+  "providers": [
+    {
+      "name": "my-provider",
+      "display_name": "我的厂商",
+      "kind": "openai",
+      "base_url": "https://api.example.com/v1",
+      "api_key": "${MY_API_KEY}",
+      "default_model": "my-model",
+      "models": [
+        {
+          "id": "my-model",
+          "name": "My Model",
+          "context_window": 32768
+        }
+      ]
+    }
+  ]
+}
 ```

@@ -27,7 +27,7 @@ go tool cover -html=coverage.out   # 浏览器查看覆盖率
 
 | 模块 | 测试重点 |
 |------|---------|
-| `config/` | TOML 解析正确性、配置优先级覆盖、环境变量注入、缺失必填字段报错 |
+| `config/` | JSON 解析正确性、配置优先级覆盖、环境变量注入、缺失必填字段报错 |
 | `provider/registry.go` | Adapter 注册/去重、按 Kind 查找、未注册 Kind 返回错误 |
 | `provider/openai/` | 请求构建（URL/Header/Body）、流式 SSE 解析、错误响应处理、超时重试 |
 | `provider/deepseek/` | reasoning_content 提取、前缀缓存命中追踪、工具调用修复流水线 |
@@ -50,8 +50,8 @@ internal/xxx/
 ├── xxx.go
 ├── xxx_test.go
 └── testdata/           ← 测试数据目录（Go 工具链自动忽略）
-    ├── config_valid.toml
-    ├── config_invalid.toml
+    ├── config_valid.json
+    ├── config_invalid.json
     ├── sample_response.json
     └── fixtures/        ← 多文件测试夹具
         ├── project/
@@ -85,7 +85,7 @@ func TestReadFile(t *testing.T) {
 
 ```go
 func TestConfigLoad(t *testing.T) {
-    cfg, err := LoadConfig("testdata/config_valid.toml")
+    cfg, err := LoadConfig("testdata/config_valid.json")
     if err != nil {
         t.Fatalf("failed to load valid config: %v", err)
     }
@@ -125,11 +125,11 @@ func TestMemoryStore_File(t *testing.T) {
 
 ```
 testdata/
-├── config_full.toml         # 完整多 Provider 配置
-├── config_minimal.toml      # 最小必填配置
-├── config_missing_key.toml  # 缺少 api_key_env
-├── config_invalid_url.toml  # 非法 base_url
-└── config_custom.toml       # 自定义 Provider
+├── config_full.json         # 完整多 Provider 配置
+├── config_minimal.json      # 最小必填配置
+├── config_missing_key.json  # 缺少 api_key
+├── config_invalid_url.json  # 非法 base_url
+└── config_custom.json       # 自定义 Provider
 ```
 
 ### 清理原则

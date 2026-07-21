@@ -34,7 +34,7 @@ internal/
   agent/     — Agent loop, modes (build/plan/compose/max), coordinator, subagent
   provider/  — Provider interface + adapters: deepseek/, mimo/, openai/
   tool/      — Tool interface, registry, executor, all built-in tools
-  config/    — TOML/JSON config loading, validation, schema generation
+  config/    — JSON config loading, validation, schema generation
   control/   — Permissions, allowlist, cost budget, workspace trust
   session/   — Session persistence (JSONL), crypto, manager
   mcp/       — MCP client (stdio + SSE), plugin manager
@@ -76,7 +76,7 @@ Adding a new Tool: implement `Tool` interface in `internal/tool/`, register in `
 - `internal/provider/deepseek/provider.go` — tokenizer loaded via `sync.Once` pattern with `atomic.Bool` + mutex (double-check locking). Not `sync.Once` to allow test reset.
 - `internal/agent/coordinator.go` — planner/executor separation. `RunStream` uses goroutine fan-in with `ctx.Done()` on both text and error channels.
 - Session data stored in `~/.loomcode/sessions/` as JSONL (first line = meta, rest = messages).
-- Config search order: `--config` > `./loomcode.toml` > `~/.loomcode/models.{json,toml}` > `./models.{json,toml}` > `~/.loomcode/loomcode.toml` (deprecated) > defaults.
+- Config search order (from `internal/config/loader.go`): merge `~/.loomcode/{models.json, settings.json}` (global) → overlay `<project>/.loomcode/{settings.json, settings.local.json}` (project overrides global); `settings.local.json` overrides `settings.json`. Precedence: project > global, local > shared. Legacy TOML files (`loomcode.toml` / `config.toml` / `models.toml`) are migration input only and deprecated.
 
 ## Bug Audit
 

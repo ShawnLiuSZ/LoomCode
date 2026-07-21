@@ -64,19 +64,21 @@ MCP 插件的工具通过 `plugin.go` 适配为 `Tool` 接口，注册到 `tool.
 
 ## 配置示例
 
-```toml
-# loomcode.toml
-
-# stdio 模式 — 本地 Node.js MCP 服务器
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# SSE 模式 — 远程 MCP 服务器
-[[plugins]]
-name = "remote-tool"
-url  = "https://mcp.example.com/sse"
+```json
+// settings.json 或 models.json 的 plugins 数组
+{
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    },
+    {
+      "name": "remote-tool",
+      "url": "https://mcp.example.com/sse"
+    }
+  ]
+}
 ```
 
 ## 连接容错

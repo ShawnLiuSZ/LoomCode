@@ -53,11 +53,14 @@ Auto 模式下默认放行的安全命令：
 }
 ```
 
-可通过 `loomcode.toml` 的 `[permissions]` 扩展：
+可通过 `settings.json` 的 `permissions` 扩展：
 
-```toml
-[permissions]
-shell_allowlist = ["git", "npm", "go", "ls", "cat"]
+```json
+{
+  "permissions": {
+    "shell_allowlist": ["git", "npm", "go", "ls", "cat"]
+  }
+}
 ```
 
 ## 路径白名单

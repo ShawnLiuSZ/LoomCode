@@ -74,7 +74,7 @@ make build
 loomcode setup
 ```
 
-五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `~/.loomcode/models.toml` + `.env` → 输出 JSON Schema。（手动配置推荐使用 `~/.loomcode/models.json`）
+五步引导：选择 Provider → 输入 API Key → 选择模型 → 生成 `~/.loomcode/settings.json` + `.env` → 输出 JSON Schema。（手动配置推荐使用 `~/.loomcode/settings.json` 与 `~/.loomcode/models.json`）
 
 ### 启动 TUI
 
@@ -96,7 +96,7 @@ echo "解释这段代码" | ./bin/loomcode run
 
 ```bash
 loomcode schema > ~/.loomcode/schema.json
-# 编辑器（VS Code / Vim 等）加载此文件即可获得 loomcode.toml 的自动补全与校验
+# 编辑器（VS Code / Vim 等）加载此文件即可获得 settings.json 的自动补全与校验
 ```
 
 ---
@@ -116,7 +116,7 @@ loomcode setup
 1. 选择内置 Provider（DeepSeek / MiMo / OpenAI）或自定义 OpenAI 兼容厂商
 2. 输入 API Key
 3. 选择默认模型
-4. 自动写入 `~/.loomcode/models.toml`（TOML）和 `~/.loomcode/.env`
+4. 自动写入 `~/.loomcode/settings.json`（JSON，含 env/plugins 等）和 `~/.loomcode/.env`
 5. 生成 JSON Schema 供编辑器补全
 
 完成后再运行 `loomcode chat` 或 `loomcode run` 即可使用已配置的模型。
@@ -272,7 +272,7 @@ LOOMCODE_TOKENIZER_PATH=/path/to/tokenizer.json loomcode --provider deepseek
 ```
 
 环境变量解析优先级：
-1. `loomcode.json` 的 `env` 字段
+1. `settings.json` 的 `env` 字段
 2. 系统环境变量
 
 **方式二：明文密钥（适合测试/本地开发）**
@@ -335,7 +335,7 @@ loomcode --model deepseek-v4-pro
 |------|------|
 | `loomcode` / `loomcode chat` / `loomcode tui` | 启动交互式 TUI（默认） |
 | `loomcode run <task>` | 单次任务，支持从 stdin 读取任务内容 |
-| `loomcode setup` | 交互式配置向导，生成 `~/.loomcode/models.toml` + `.env` |
+| `loomcode setup` | 交互式配置向导，生成 `~/.loomcode/settings.json` + `.env` |
 | `loomcode schema` | 输出 JSON Schema（配置校验） |
 | `loomcode dashboard [addr]` | 启动 Web Dashboard（默认 `:8080`） |
 
@@ -449,22 +449,20 @@ Agent 在执行任务时可调用以下工具访问历史会话：
 
 ### 配置文件
 
-配置使用 JSON 格式，分为两个文件：
+配置使用 JSON 格式，按职责分为两个全局文件（合并加载），以及项目级覆盖文件：
 
-- **`loomcode.json`** — 主配置（plugins、permissions、search、agent 等）
-- **`models.json`** — 模型配置（providers/models 定义）
+- **`~/.loomcode/models.json`**（全局）— 模型配置（providers + default_provider）
+- **`~/.loomcode/settings.json`**（全局）— 主配置（env、plugins、permissions、search、agent 等）
+- **`<project>/.loomcode/settings.json`**（项目级，可提交共享）— 覆盖全局配置
+- **`<project>/.loomcode/settings.local.json`**（项目级，本地覆盖，已 gitignore）— 覆盖 `settings.json`
 
-查找优先级（高到低）：
+加载顺序（来自 `internal/config/loader.go`）：先合并 `~/.loomcode/{models.json, settings.json}`（global），再叠加 `<project>/.loomcode/{settings.json, settings.local.json}`（project 覆盖 global）；`settings.local.json` 覆盖 `settings.json`。优先级：**project > global，local > shared**。
 
-1. `--config <path>`（CLI 参数）
-2. `./loomcode.json`（项目级主配置）
-3. `~/.loomcode/loomcode.json`（全局主配置）
-4. `./models.json`（项目级模型配置）
-5. `~/.loomcode/models.json`（全局模型配置）
+> 旧版 TOML 配置文件（`loomcode.toml` / `config.toml` / `models.toml`）仅作为迁移输入，启动时自动迁移为 JSON，现已废弃；旧路径 `./loomcode.json`、`.claude/loomcode.json` 也已不再使用。
 
-完整示例见 [`loomcode.example.json`](loomcode.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
+完整示例见仓库根目录的 [`settings.example.json`](settings.example.json)（主配置）和 [`models.example.json`](models.example.json)（模型配置）。
 
-主配置示例（`loomcode.json`）：
+主配置示例（`settings.json`）：
 
 ```json
 {
@@ -551,13 +549,13 @@ MIMO_API_KEY=
 OPENAI_API_KEY=
 ```
 
-> 提示：使用 `api_key: "${ENV_VAR}"` 语法时，环境变量会自动从系统环境变量和 `loomcode.json` 的 `env` 字段中解析，无需手动加载 `.env` 文件。
+> 提示：使用 `api_key: "${ENV_VAR}"` 语法时，环境变量会自动从系统环境变量和 `settings.json` 的 `env` 字段中解析，无需手动加载 `.env` 文件。
 
 ---
 
 ## MCP 插件
 
-在 `loomcode.json` 中配置 MCP 服务器，扩展工具能力：
+在 `settings.json` 中通过 `plugins` 数组配置 MCP 服务器，扩展工具能力：
 
 ```json
 {

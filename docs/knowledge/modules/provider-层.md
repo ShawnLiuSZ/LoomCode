@@ -19,7 +19,7 @@ aliases:
 
 ## 概述
 
-Provider 层采用 **Adapter 工厂模式**，将不同 LLM 厂商的 API 差异封装在适配器中。任何 OpenAI 兼容厂商通过 TOML 配置即可接入，无需修改代码。
+Provider 层采用 **Adapter 工厂模式**，将不同 LLM 厂商的 API 差异封装在适配器中。任何 OpenAI 兼容厂商通过 JSON 配置即可接入，无需修改代码。
 
 **代码路径**：`internal/provider/`
 
@@ -85,19 +85,27 @@ type Capabilities struct {
 
 ## 新增 Provider（配置驱动，无需写代码）
 
-```toml
-# loomcode.toml
-[[providers]]
-name         = "qwen"
-display_name = "通义千问"
-kind         = "openai"          # 使用通用适配器
-base_url     = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key_env  = "DASHSCOPE_API_KEY"
-
-  [[providers.models]]
-  id    = "qwen-max"
-  name  = "Qwen Max"
-  context_window = 32768
+```json
+// settings.json 或 models.json 的 providers 数组
+{
+  "providers": [
+    {
+      "name": "qwen",
+      "display_name": "通义千问",
+      "kind": "openai",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "${DASHSCOPE_API_KEY}",
+      "default_model": "qwen-max",
+      "models": [
+        {
+          "id": "qwen-max",
+          "name": "Qwen Max",
+          "context_window": 32768
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## 配置结构

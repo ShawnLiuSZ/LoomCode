@@ -26,7 +26,7 @@
 技术细节的完整描述。
 
 - [CLI 命令参考](reference/cli-commands.md) - 所有命令行选项和参数
-- [配置文件格式](reference/config-format.md) - loomcode.toml 完整语法
+- [配置文件格式](reference/config-format.md) - settings.json / models.json 完整语法（JSON）
 - [内置工具列表](reference/built-in-tools.md) - 所有内置工具及其参数
 - [Provider 接口](reference/provider-interface.md) - Provider 适配器开发指南
 - [MCP 插件协议](reference/mcp-protocol.md) - MCP 插件集成说明
