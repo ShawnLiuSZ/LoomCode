@@ -35,6 +35,33 @@ func filterEnvForSubprocess() []string {
 	return filtered
 }
 
+// mergeEnv 合并环境变量，extra 覆盖 base 中的同名 key。
+// #1 修复：原实现 `if !existing[k]` 导致 extra 被静默丢弃，与注释相反，
+// 依赖自定义 PATH/HOME 的 MCP 子进程会启动失败且无提示。
+func mergeEnv(base []string, extra map[string]string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	// 用 map 合并：extra 覆盖 base 同名 key，再重新拼成 KEY=VAL 切片。
+	merged := make(map[string]string, len(base)+len(extra))
+	for _, e := range base {
+		for i := 0; i < len(e); i++ {
+			if e[i] == '=' {
+				merged[e[:i]] = e[i+1:]
+				break
+			}
+		}
+	}
+	for k, v := range extra {
+		merged[k] = v // extra 覆盖 base 同名 key
+	}
+	result := make([]string, 0, len(merged))
+	for k, v := range merged {
+		result = append(result, k+"="+v)
+	}
+	return result
+}
+
 const (
 	defaultMaxRetries = 3
 	baseRetryDelay    = 1 * time.Second
@@ -68,6 +95,9 @@ type Client struct {
 	maxRetries   int
 	reconnecting atomic.Bool
 
+	// 额外环境变量（来自配置文件的 env 字段）
+	extraEnv map[string]string
+
 	// 子进程生命周期 context：connect 时创建，cleanup/Close 时取消，
 	// 确保子进程（MCP server）在关闭时被杀掉，避免孤儿进程。
 	lifeCtx    context.Context
@@ -88,6 +118,11 @@ func NewClient(command string, args ...string) *Client {
 	}
 }
 
+// SetEnv 设置额外环境变量
+func (c *Client) SetEnv(env map[string]string) {
+	c.extraEnv = env
+}
+
 // SetMaxRetries 设置最大重试次数
 func (c *Client) SetMaxRetries(n int) {
 	c.maxRetries = n
@@ -105,7 +140,7 @@ func (c *Client) connect() error {
 	// 每次连接创建独立的生命周期 context，cleanup 时取消以杀掉子进程（避免孤儿进程）。
 	c.lifeCtx, c.lifeCancel = context.WithCancel(context.Background())
 	cmd := exec.CommandContext(c.lifeCtx, c.command, c.args...)
-	cmd.Env = filterEnvForSubprocess()
+	cmd.Env = mergeEnv(filterEnvForSubprocess(), c.extraEnv)
 	c.cmd = cmd
 
 	stdin, err := cmd.StdinPipe()
@@ -152,8 +187,10 @@ func (c *Client) connect() error {
 		return fmt.Errorf("parse init result: %w", err)
 	}
 
+	c.mu.Lock()
 	c.serverInfo = initResult.ServerInfo
 	c.initialized = true
+	c.mu.Unlock()
 
 	// 发送 initialized 通知
 	c.sendNotification("notifications/initialized", nil)
@@ -386,7 +423,10 @@ func (c *Client) Close() error {
 }
 
 // ServerInfo 返回服务器信息
+// #7 修复：加锁读取，避免 reconnect 重写 serverInfo 时的数据竞争。
 func (c *Client) ServerInfo() ServerInfo {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.serverInfo
 }
 
@@ -402,7 +442,9 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 		return nil, fmt.Errorf("parse tools: %w", err)
 	}
 
+	c.mu.Lock()
 	c.tools = result.Tools
+	c.mu.Unlock()
 	return result.Tools, nil
 }
 

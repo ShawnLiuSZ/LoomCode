@@ -17,8 +17,9 @@ go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 ### 2. 配置
 
 ```bash
-# 复制配置模板
-cp loomcode.example.toml loomcode.toml
+# 复制配置模板到全局配置目录
+cp ../../settings.example.json ~/.loomcode/settings.json
+cp ../../models.example.json ~/.loomcode/models.json
 
 # 设置 API Key
 export DEEPSEEK_API_KEY="sk-your-key-here"

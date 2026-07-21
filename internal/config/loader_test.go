@@ -1,8 +1,10 @@
 package config
 
 import (
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,7 +181,7 @@ func TestLoadWithProject_ProjectOverridesGlobal(t *testing.T) {
 
 	// Set up project config with different provider
 	projectDir := filepath.Join(tmpDir, "project")
-	projectConfigDir := filepath.Join(projectDir, ".claude")
+	projectConfigDir := filepath.Join(projectDir, ".loomcode")
 	os.MkdirAll(projectConfigDir, 0755)
 	projectContent := `{
   "default_provider": "openai",
@@ -191,7 +193,7 @@ func TestLoadWithProject_ProjectOverridesGlobal(t *testing.T) {
     "models": [{"id": "gpt-4o", "context_window": 128000}]
   }]
 }`
-	os.WriteFile(filepath.Join(projectConfigDir, "loomcode.json"), []byte(projectContent), 0644)
+	os.WriteFile(filepath.Join(projectConfigDir, "settings.json"), []byte(projectContent), 0644)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", home)
@@ -232,7 +234,7 @@ func TestLoadWithProject_EnvMerge(t *testing.T) {
 
 	// Set up project config with additional env
 	projectDir := filepath.Join(tmpDir, "project")
-	projectConfigDir := filepath.Join(projectDir, ".claude")
+	projectConfigDir := filepath.Join(projectDir, ".loomcode")
 	os.MkdirAll(projectConfigDir, 0755)
 	projectContent := `{
   "default_provider": "deepseek",
@@ -245,7 +247,7 @@ func TestLoadWithProject_EnvMerge(t *testing.T) {
   }],
   "env": {"DEEPSEEK_API_KEY": "project-key", "EXTRA_KEY": "extra-val"}
 }`
-	os.WriteFile(filepath.Join(projectConfigDir, "loomcode.json"), []byte(projectContent), 0644)
+	os.WriteFile(filepath.Join(projectConfigDir, "settings.json"), []byte(projectContent), 0644)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", home)
@@ -261,5 +263,59 @@ func TestLoadWithProject_EnvMerge(t *testing.T) {
 	}
 	if cfg.Env["EXTRA_KEY"] != "extra-val" {
 		t.Errorf("EXTRA_KEY = %q, want extra-val", cfg.Env["EXTRA_KEY"])
+	}
+}
+
+// TestLoadOrWarn_CorruptedConfigWarns #6 修复：配置文件存在但 JSON 畸形时，
+// 必须向 stderr 打印告警，而不是静默回退默认值。
+func TestLoadOrWarn_CorruptedConfigWarns(t *testing.T) {
+	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
+	loomcodeDir := filepath.Join(home, ".loomcode")
+	os.MkdirAll(loomcodeDir, 0755)
+
+	// 写入畸形的 models.json
+	os.WriteFile(filepath.Join(loomcodeDir, "models.json"), []byte(`{not valid json`), 0644)
+	// 写入正常的 settings.json（但无 provider）
+	os.WriteFile(filepath.Join(loomcodeDir, "settings.json"), []byte(`{"env": {"KEY": "val"}}`), 0644)
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", home)
+	defer os.Setenv("HOME", origHome)
+
+	// LoadDefault 遇到单个文件错误会直接返回，#6 的 loadOrWarn 是在 loadGlobalConfig 内部使用的。
+	// 因此用 LoadWithProject("") 走 loadGlobalConfig 路径验证告警与回退。
+	t.Setenv("DEEPSEEK_API_KEY", "test-key")
+	t.Setenv("MIMO_API_KEY", "test-key")
+
+	// 捕获 stderr
+	oldStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+
+	cfg, err := LoadWithProject("")
+
+	// 恢复 stderr
+	_ = w.Close()
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Fatalf("LoadWithProject should not fail when one config is corrupted: %v", err)
+	}
+
+	out, _ := io.ReadAll(r)
+	_ = r.Close()
+	warn := string(out)
+
+	if !strings.Contains(warn, "failed to load config") || !strings.Contains(warn, "models.json") {
+		t.Errorf("expected stderr warning about corrupted models.json, got: %q", warn)
+	}
+
+	// models.json 损坏被忽略；settings.json 仍有效，其 env 应被保留（不静默回退默认值）。
+	if cfg.Env["KEY"] != "val" {
+		t.Errorf("Env[KEY] = %q, want val (settings.json should still load)", cfg.Env["KEY"])
 	}
 }

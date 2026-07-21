@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -383,4 +384,45 @@ func TestSaveSession_RenamesDefaultSessionFromFirstUserMessage(t *testing.T) {
 	if restored.Name != "implement login feature" {
 		t.Errorf("expected session name renamed to first user message, got %q", restored.Name)
 	}
+}
+
+// TestConcurrentSharedFieldAccess_NoDataRace 复现并验证数据竞争修复：
+// goroutine A 模拟 Agent goroutine，goroutine B 模拟 TUI 主 goroutine，
+// 并发读写 costBudget / pendingApproval / pendingOutside / cancelFunc 四个字段。
+// 修复前这四个字段为普通字段，go test -race 会报 data race；
+// 修复后改为 atomic 无锁访问，应当静默通过。
+func TestConcurrentSharedFieldAccess_NoDataRace(t *testing.T) {
+	app := newTestApp()
+	app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Agent goroutine：读 cancelFunc / costBudget，写 pendingApproval / pendingOutside
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5000; i++ {
+			_ = app.getCostBudget()
+			if ch := app.cancelFunc.Load(); ch != nil && ch.fn != nil {
+				ch.fn()
+			}
+			app.pendingApproval.Store(&pendingWrite{})
+			app.pendingOutside.Store(&pendingOutsideAccess{})
+		}
+	}()
+
+	// TUI 主 goroutine：写 cancelFunc / costBudget，读并清除 pendingApproval / pendingOutside
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5000; i++ {
+			app.cancelFunc.Store(&cancelHolder{fn: func() {}})
+			app.setCostBudget(float64(i))
+			_ = app.pendingApproval.Load()
+			app.pendingApproval.Store(nil)
+			_ = app.pendingOutside.Load()
+			app.pendingOutside.Store(nil)
+		}
+	}()
+
+	wg.Wait()
 }

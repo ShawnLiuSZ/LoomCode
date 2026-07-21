@@ -92,10 +92,10 @@ type App struct {
 	resumeIdx        int
 
 	// 成本
-	costTotal   atomic.Uint64
-	costSession atomic.Uint64
-	costLast    atomic.Uint64
-	costBudget  float64
+	costTotal      atomic.Uint64
+	costSession    atomic.Uint64
+	costLast       atomic.Uint64
+	costBudgetBits atomic.Uint64 // 预算上限（float64 位模式），原子读写避免与 Agent goroutine 竞争
 
 	// 会话保存状态
 	savedMsgCount int // 已保存的消息数量
@@ -122,14 +122,14 @@ type App struct {
 	program *tea.Program
 
 	// Approval
-	pendingApproval *pendingWrite
+	pendingApproval atomic.Pointer[pendingWrite]
 
 	// 工作区外文件访问授权
 	trust          *control.WorkspaceTrust
-	pendingOutside *pendingOutsideAccess
+	pendingOutside atomic.Pointer[pendingOutsideAccess]
 
 	// 请求取消
-	cancelFunc context.CancelFunc
+	cancelFunc atomic.Pointer[cancelHolder]
 
 	// 任务队列
 	taskQueue []string
@@ -147,16 +147,21 @@ type App struct {
 	// 渲染缓存（消息内容 → 渲染结果）
 	renderCache map[string]string
 
+	// P1-1：历史消息整体渲染缓存。流式输出时每 chunk 只需拼接此缓存 +
+	// 当前流式缓冲，避免遍历全量历史导致的 CPU 占用与闪烁。
+	historyRenderCache    string
+	historyRenderCacheLen int // 生成缓存时 a.messages 的长度，长度变化即失效
+
 	// 编辑快照管理器（/rewind 回退安全网）
 	checkpointMgr *tool.CheckpointManager
 }
 
 type chatMessage struct {
-	Role              string
-	Content           string
-	ReasoningContent  string // 模型的思考过程（流式片段聚合）
-	ToolName          string
-	Timestamp         time.Time
+	Role             string
+	Content          string
+	ReasoningContent string // 模型的思考过程（流式片段聚合）
+	ToolName         string
+	Timestamp        time.Time
 }
 
 // modelPickerEntry 模型选择器条目（包含 provider 信息）
@@ -181,6 +186,12 @@ type pendingOutsideAccess struct {
 type outsideAccessDecision struct {
 	granted   bool
 	permanent bool
+}
+
+// cancelHolder 包装 context.CancelFunc，使其可通过 atomic.Pointer 无锁读写，
+// 消除 Agent goroutine 调用取消函数与 TUI 主 goroutine 设置/清除取消函数之间的数据竞争。
+type cancelHolder struct {
+	fn context.CancelFunc
 }
 
 type approvalMsg struct{}
@@ -209,55 +220,64 @@ var allCommands = []string{
 	"/goal", "/clear", "/cost", "/budget", "/env", "/model", "/skills", "/sessions", "/resume", "/compact", "/queue", "/steps", "/remember", "/quit",
 }
 
-// RoleColor 角色→ANSI 颜色索引常量表，统一管理语义色，避免魔法数字扩散。
-const (
-	colorUser       = "6"  // cyan
-	colorAssistant  = "3"  // yellow
-	colorSystem     = "8"  // bright black
-	colorTool       = "5"  // magenta
-	colorDanger     = "1"  // red — error/cost-red/diff-del/context-warn 共用
-	colorSuccess    = "2"  // green
-	colorInfo       = "4"  // blue
-	colorHighlight  = "6"  // cyan (diff header)
-	colorSuggestion = "8"  // bright black
-	colorMuted      = "7"  // white
-	colorBg         = "7"  // cursor background
-	colorFg         = "0"  // black (cursor text)
-	colorLogo       = "#3B82F6" // Blue-500 (version text)
-	colorLogoAccent = "#7C3AED" // Violet-600 (welcome logo)
+// Design Token：语义化配色，浅色/深色自适应。
+// P0-1 修复：原硬编码 ANSI 数字色（如 colorMuted=7 白、colorSystem=8 亮黑）
+// 在浅色终端下白底白字/极淡灰，半数文字不可见。改用 AdaptiveColor 按
+// lipgloss.HasDarkBackground() 自动选色：深色端维持原 ANSI 观感，
+// 浅色端采用符合 WCAG AA 对比度的 hex 值。
+var (
+	colorUser       = lipgloss.AdaptiveColor{Light: "#0891b2", Dark: "6"} // cyan
+	colorAssistant  = lipgloss.AdaptiveColor{Light: "#d97706", Dark: "3"} // amber
+	colorSystem     = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "8"} // gray
+	colorTool       = lipgloss.AdaptiveColor{Light: "#9333ea", Dark: "5"} // purple
+	colorDanger     = lipgloss.AdaptiveColor{Light: "#dc2626", Dark: "1"} // red
+	colorSuccess    = lipgloss.AdaptiveColor{Light: "#059669", Dark: "2"} // emerald
+	colorInfo       = lipgloss.AdaptiveColor{Light: "#2563eb", Dark: "4"} // blue
+	colorHighlight  = lipgloss.AdaptiveColor{Light: "#0891b2", Dark: "6"} // cyan
+	colorSuggestion = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "8"} // gray
+	colorMuted      = lipgloss.AdaptiveColor{Light: "#6b7280", Dark: "7"} // gray/white
+	colorBg         = lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "7"} // 光标背景
+	colorFg         = lipgloss.AdaptiveColor{Light: "#1f2937", Dark: "0"} // 状态栏文字
+	colorStatusBg   = lipgloss.AdaptiveColor{Light: "#e5e7eb", Dark: "7"} // 状态栏底（浅色端浅灰条，与白底区分且 WCAG AA 对比度）
+	colorCursorFg   = lipgloss.AdaptiveColor{Light: "#f9fafb", Dark: "0"} // 光标块内文字
+	colorLogo       = lipgloss.AdaptiveColor{Light: "#2563eb", Dark: "#3B82F6"}
+	colorLogoAccent = lipgloss.AdaptiveColor{Light: "#7c3aed", Dark: "#7C3AED"}
 )
 
 // 样式注册表（集中管理所有命名样式）
 var (
-	userStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colorUser)).Bold(true)
-	assistantStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant))
-	systemStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSystem)).Italic(true)
-	toolStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color(colorTool))
-	errorStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Bold(true)
-	suggestionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuggestion))
-	suggestionSel    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Background(lipgloss.Color(colorInfo))
-	headerStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Bold(true).Padding(0, 1)
-	statusBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Background(lipgloss.Color(colorMuted)).Padding(0, 1)
-	costGreenStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess))
-	costYellowStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant))
-	costRedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger))
-	activityStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorInfo)).Italic(true)
-	contextWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Bold(true)
+	userStyle        = lipgloss.NewStyle().Foreground(colorUser).Bold(true)
+	assistantStyle   = lipgloss.NewStyle().Foreground(colorAssistant)
+	systemStyle      = lipgloss.NewStyle().Foreground(colorSystem).Italic(true)
+	toolStyle        = lipgloss.NewStyle().Foreground(colorTool)
+	errorStyle       = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
+	suggestionStyle  = lipgloss.NewStyle().Foreground(colorSuggestion)
+	suggestionSel    = lipgloss.NewStyle().Foreground(colorFg).Background(colorInfo)
+	headerStyle      = lipgloss.NewStyle().Foreground(colorSuccess).Bold(true).Padding(0, 1)
+	statusBarStyle   = lipgloss.NewStyle().Foreground(colorFg).Background(colorStatusBg).Padding(0, 1)
+	costGreenStyle   = lipgloss.NewStyle().Foreground(colorSuccess)
+	costYellowStyle  = lipgloss.NewStyle().Foreground(colorAssistant)
+	costRedStyle     = lipgloss.NewStyle().Foreground(colorDanger)
+	activityStyle    = lipgloss.NewStyle().Foreground(colorInfo).Italic(true)
+	contextWarnStyle = lipgloss.NewStyle().Foreground(colorDanger).Bold(true)
 
-	approvalTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant)).Bold(true)
-	diffAddStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess))
-	diffDelStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger))
-	diffHeaderStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color(colorHighlight)).Bold(true)
-	approvalHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorAssistant)).Italic(true)
+	approvalTitleStyle = lipgloss.NewStyle().Foreground(colorAssistant).Bold(true)
+	diffAddStyle       = lipgloss.NewStyle().Foreground(colorSuccess)
+	diffDelStyle       = lipgloss.NewStyle().Foreground(colorDanger)
+	diffHeaderStyle    = lipgloss.NewStyle().Foreground(colorHighlight).Bold(true)
+	approvalHelpStyle  = lipgloss.NewStyle().Foreground(colorAssistant).Italic(true)
 
 	// renderWelcome 专用（原散落在函数内，现收入注册表）
 	logoStyle = lipgloss.NewStyle().Bold(true)
-	verStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorLogo)).Bold(true)
-	tipStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted))
+	verStyle  = lipgloss.NewStyle().Foreground(colorLogo).Bold(true)
+	tipStyle  = lipgloss.NewStyle().Foreground(colorMuted)
 
 	// textarea 光标样式（原散落在 NewApp 内，现收入注册表）
-	cursorBgStyle = lipgloss.NewStyle().Background(lipgloss.Color(colorBg))
-	cursorFgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg))
+	cursorBgStyle = lipgloss.NewStyle().Background(colorBg)
+	cursorFgStyle = lipgloss.NewStyle().Foreground(colorCursorFg)
+
+	// P2-3：取消操作的专属样式，与红色 error 视觉区分。
+	cancelledStyle = lipgloss.NewStyle().Foreground(colorMuted).Italic(true)
 )
 
 // NewApp 创建 TUI 应用
@@ -289,8 +309,10 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 	ta.SetWidth(80)
 	ta.ShowLineNumbers = false
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	ta.FocusedStyle.Base = lipgloss.NewStyle()
-	ta.BlurredStyle.Base = lipgloss.NewStyle()
+	// P2-1：聚焦/失焦用前景色区分，让用户能判断输入框焦点状态。
+	// （更醒目的边框焦点指示在 View() 层通过 lipgloss 包裹实现，见 render 区。）
+	ta.FocusedStyle.Base = lipgloss.NewStyle().Foreground(colorFg)
+	ta.BlurredStyle.Base = lipgloss.NewStyle().Foreground(colorMuted)
 	// 修复光标渲染乱码：用 Background 替代 Reverse(true) — 使用注册表样式
 	ta.Cursor.Style = cursorBgStyle
 	ta.Cursor.TextStyle = cursorFgStyle
@@ -344,11 +366,14 @@ func NewApp(p provider.Provider, tools *tool.Registry) *App {
 			}
 		}
 		sessionCost := costFloatFromUint64(app.costSession.Load())
-		if app.costBudget > 0 && sessionCost >= app.costBudget && app.cancelFunc != nil {
-			app.cancelFunc()
+		budget := math.Float64frombits(app.costBudgetBits.Load())
+		if budget > 0 && sessionCost >= budget {
+			if ch := app.cancelFunc.Load(); ch != nil && ch.fn != nil {
+				ch.fn()
+			}
 			// 在 Agent goroutine 中不能直接写 a.messages，通过 program.Send 路由到 BubbleTea 主 goroutine。
 			if app.program != nil {
-				app.program.Send(costBudgetExceededMsg{sessionCost: sessionCost, budget: app.costBudget})
+				app.program.Send(costBudgetExceededMsg{sessionCost: sessionCost, budget: budget})
 			}
 		}
 	})
@@ -396,13 +421,13 @@ func (a *App) PromptAndAllow(path string) error {
 		return fmt.Errorf("TUI not ready or trust not configured")
 	}
 	done := make(chan outsideAccessDecision, 1)
-	a.pendingOutside = &pendingOutsideAccess{
+	a.pendingOutside.Store(&pendingOutsideAccess{
 		path: path,
 		done: done,
-	}
+	})
 	a.program.Send(outsideAccessMsg{})
 	decision := <-done
-	a.pendingOutside = nil
+	a.pendingOutside.Store(nil)
 	if !decision.granted {
 		return nil
 	}
@@ -437,7 +462,7 @@ func (a *App) AddApprovalGuard(perm *control.Permission) {
 		if a.program != nil {
 			// 必须先把 pw 挂到 a.pendingApproval，handleKey 才会往 pw.decision 喂值；
 			// 否则下方 <-pw.decision 会永久阻塞，导致 TUI 卡死。
-			a.pendingApproval = pw
+			a.pendingApproval.Store(pw)
 			a.program.Send(approvalMsg{})
 		}
 		if <-pw.decision {
@@ -636,6 +661,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// 1.9 修复：窗口缩放后渲染缓存按旧宽度渲染，必须清空。
 		a.renderCache = make(map[string]string)
+		// P1-1：历史渲染缓存同样依赖宽度，一并失效。
+		a.historyRenderCache = ""
+		a.historyRenderCacheLen = 0
 
 	case tea.KeyMsg:
 		return a.handleKey(msg)
@@ -674,7 +702,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamChars = 0
 		a.streamMu.Unlock()
 		a.loading = false
-		a.cancelFunc = nil
+		a.cancelFunc.Store(nil)
 		a.lastStep = 0
 		a.lastTool = ""
 		a.activityPhase = ""
@@ -690,23 +718,36 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.streamReasoningBuf = ""
 		a.streamMu.Unlock()
 		a.loading = false
-		a.cancelFunc = nil
+		a.cancelFunc.Store(nil)
 		a.lastStep = 0
 		a.lastTool = ""
 		a.activityPhase = ""
-		errStr := friendlyError(string(msg))
-		a.messages = append(a.messages, chatMessage{Role: "error", Content: errStr, Timestamp: time.Now()})
+		// P2-3：区分用户主动取消与真实错误。取消用灰色 ⏹，错误用红色 ✖。
+		rawErr := string(msg)
+		lowerErr := strings.ToLower(rawErr)
+		isCancelled := strings.Contains(lowerErr, "context canceled") || strings.Contains(lowerErr, "context deadline")
+		role := "error"
+		errStr := friendlyError(rawErr)
+		if isCancelled {
+			role = "cancelled"
+			errStr = "已停止"
+		}
+		a.messages = append(a.messages, chatMessage{Role: role, Content: errStr, Timestamp: time.Now()})
 		a.saveSession()
 		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, a.processQueue()
 
 	case approvalMsg:
+		// P2-4：弹窗激活时让出输入框焦点，避免与 Y/n 输入竞争。
+		a.textArea.Blur()
 		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, nil
 
 	case outsideAccessMsg:
+		// P2-4：弹窗激活时让出输入框焦点，避免与 t/p/n 输入竞争。
+		a.textArea.Blur()
 		a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 		a.viewport.GotoBottom()
 		return a, nil
@@ -748,52 +789,53 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		switch key {
 		case "enter":
-			pw := a.pendingApproval
-			a.pendingApproval = nil
+			pw := a.pendingApproval.Load()
+			a.pendingApproval.Store(nil)
 			pw.decision <- true
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
-			return a, nil
+			// P2-4：恢复输入框焦点。
+			return a, a.textArea.Focus()
 		case "esc":
-			pw := a.pendingApproval
-			a.pendingApproval = nil
+			pw := a.pendingApproval.Load()
+			a.pendingApproval.Store(nil)
 			pw.decision <- false
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "操作已拒绝"})
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
-			return a, nil
+			return a, a.textArea.Focus()
 		default:
 			return a, nil
 		}
 	}
 
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		switch key {
 		case "t":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: true, permanent: false}
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
-			return a, nil
+			return a, a.textArea.Focus()
 		case "p":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: true, permanent: true}
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
-			return a, nil
+			return a, a.textArea.Focus()
 		case "n", "esc":
-			po := a.pendingOutside
-			a.pendingOutside = nil
+			po := a.pendingOutside.Load()
+			a.pendingOutside.Store(nil)
 			po.done <- outsideAccessDecision{granted: false, permanent: false}
 			a.messages = append(a.messages, chatMessage{Role: "system", Content: "已拒绝访问工作区外文件"})
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			a.viewport.GotoBottom()
-			return a, nil
+			return a, a.textArea.Focus()
 		default:
 			return a, nil
 		}
@@ -922,11 +964,15 @@ func (a *App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		})
 
 	case "esc":
-		if a.loading && a.cancelFunc != nil {
-			a.cancelFunc()
-			a.cancelFunc = nil
+		if a.loading {
+			if ch := a.cancelFunc.Load(); ch != nil && ch.fn != nil {
+				ch.fn()
+			}
+			a.cancelFunc.Store(nil)
 			a.loading = false
-			a.messages = append(a.messages, chatMessage{Role: "system", Content: "请求已取消"})
+			// 不在此追加"请求已取消"消息：agent goroutine 因 ctx 取消返回 error 后，
+			// streamErrorMsg 会统一追加 friendlyError("context canceled") = "请求已取消。"。
+			// 否则用户会看到两条近似消息。
 			a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 			return a, nil
 		}
@@ -1025,7 +1071,7 @@ func (a *App) handleEnter() (tea.Model, tea.Cmd) {
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: input, Timestamp: time.Now()})
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancelFunc = cancel
+	a.cancelFunc.Store(&cancelHolder{fn: cancel})
 	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 	return a, a.runAgent(ctx, input)
@@ -1123,6 +1169,8 @@ Budget:
 
 	case "/clear":
 		a.messages = a.messages[:0]
+		a.savedMsgCount = 0         // 重置已保存计数，否则 saveSession 的 for 循环会因 savedMsgCount > len(messages) 跳过新消息
+		a.activeSess = nil          // 清空活动会话引用，让下次 saveSession 创建新会话（/clear = 开始新对话）
 		a.agent.ResetConversation() // 同时清空模型侧对话历史
 		a.viewport.SetContent("")
 		return a, nil
@@ -1232,7 +1280,7 @@ func (a *App) handleGoalCmd(parts []string) (tea.Model, tea.Cmd) {
 
 func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 	if len(parts) < 2 {
-		if a.costBudget <= 0 {
+		if a.getCostBudget() <= 0 {
 			a.messages = append(a.messages, chatMessage{
 				Role:    "system",
 				Content: "当前未设置预算。\n\n使用 /budget <amount> 设置预算，例如 /budget 1.00",
@@ -1240,14 +1288,14 @@ func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 		} else {
 			a.messages = append(a.messages, chatMessage{
 				Role:    "system",
-				Content: fmt.Sprintf("预算: $%.2f | 已用: $%.4f | 剩余: $%.4f\n\n使用 /budget clear 清除预算", a.costBudget, costFloatFromUint64(a.costSession.Load()), a.costBudget-costFloatFromUint64(a.costSession.Load())),
+				Content: fmt.Sprintf("预算: $%.2f | 已用: $%.4f | 剩余: $%.4f\n\n使用 /budget clear 清除预算", a.getCostBudget(), costFloatFromUint64(a.costSession.Load()), a.getCostBudget()-costFloatFromUint64(a.costSession.Load())),
 			})
 		}
 		return a, nil
 	}
 
 	if parts[1] == "clear" {
-		a.costBudget = 0
+		a.setCostBudget(0)
 		a.agent.SetCostBudget(0)
 		a.messages = append(a.messages, chatMessage{
 			Role:    "system",
@@ -1265,7 +1313,7 @@ func (a *App) handleBudgetCmd(parts []string) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	a.costBudget = amount
+	a.setCostBudget(amount)
 	a.agent.SetCostBudget(amount)
 	a.messages = append(a.messages, chatMessage{
 		Role:    "system",
@@ -1601,7 +1649,14 @@ func (a *App) View() string {
 	sepH := 1
 	statusBar := a.renderStatusBar()
 	statusH := lipgloss.Height(statusBar)
-	textareaView := a.textArea.View()
+	rawTextarea := a.textArea.View()
+	// P2-1：View 层包裹边框，聚焦态蓝色、失焦态灰色，清晰区分焦点（浅色/深色均可见）。
+	// 边框始终存在（仅颜色切换），避免聚焦时布局高度跳动。
+	tf := colorMuted
+	if a.textArea.Focused() {
+		tf = colorInfo
+	}
+	textareaView := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(tf).Render(rawTextarea)
 	textareaH := lipgloss.Height(textareaView)
 
 	activityH := 0
@@ -1610,12 +1665,12 @@ func (a *App) View() string {
 	}
 
 	approvalH := 0
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		approvalH = lipgloss.Height(a.renderApproval()) + 2 // +2 for surrounding \n
 	}
 
 	outsideH := 0
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		outsideH = lipgloss.Height(a.renderOutsideAccess()) + 2 // +2 for surrounding \n
 	}
 
@@ -1679,14 +1734,14 @@ func (a *App) View() string {
 	}
 
 	// Approval diff
-	if a.pendingApproval != nil {
+	if a.pendingApproval.Load() != nil {
 		sb.WriteString("\n")
 		sb.WriteString(a.renderApproval())
 		sb.WriteString("\n")
 	}
 
 	// 工作区外文件访问授权提示
-	if a.pendingOutside != nil {
+	if a.pendingOutside.Load() != nil {
 		sb.WriteString("\n")
 		sb.WriteString(a.renderOutsideAccess())
 		sb.WriteString("\n")
@@ -1725,40 +1780,22 @@ func (a *App) renderTitle() string {
 }
 
 func (a *App) renderMessages(visibleLines int, streamBuf, streamReasoningBuf string) string {
-	var sb strings.Builder
-
-	for _, msg := range a.messages {
-		switch msg.Role {
-		case "welcome":
-			sb.WriteString(a.renderWelcome())
-			sb.WriteString("\n")
-		case "user":
-			sb.WriteString(userStyle.Render("▸ " + msg.Content))
-			sb.WriteString("\n")
-		case "assistant":
-			// 先渲染思考过程（灰色折叠样式），再渲染正式回答。
-			if msg.ReasoningContent != "" {
-				a.renderReasoning(&sb, msg.ReasoningContent)
-			}
-			// 尝试用 glamour 渲染 markdown
-			rendered := a.renderMarkdown(msg.Content)
-			for _, line := range strings.Split(rendered, "\n") {
-				sb.WriteString(assistantStyle.Render("  " + line))
-				sb.WriteString("\n")
-			}
-		case "system":
-			sb.WriteString(systemStyle.Render("  " + msg.Content))
-			sb.WriteString("\n")
-		case "tool":
-			sb.WriteString(toolStyle.Render("  🔧 " + msg.Content))
-			sb.WriteString("\n")
-		case "error":
-			for _, line := range strings.Split(msg.Content, "\n") {
-				sb.WriteString(errorStyle.Render("  ✖ " + line))
-				sb.WriteString("\n")
-			}
+	// P1-1：历史消息渲染结果缓存。流式输出时每 chunk 只需拼接缓存 + 当前流式缓冲，
+	// 避免遍历全量历史导致的 CPU 占用与终端闪烁。消息列表长度变化即缓存失效。
+	streaming := a.loading && (streamBuf != "" || streamReasoningBuf != "")
+	var history string
+	if streaming && a.historyRenderCacheLen == len(a.messages) && a.historyRenderCache != "" {
+		history = a.historyRenderCache
+	} else {
+		history = a.renderHistoryOnly()
+		if streaming {
+			a.historyRenderCache = history
+			a.historyRenderCacheLen = len(a.messages)
 		}
 	}
+
+	var sb strings.Builder
+	sb.WriteString(history)
 
 	// /resume 会话选择器：独占 viewport，支持方向键导航。
 	if a.showResumePicker {
@@ -1766,8 +1803,6 @@ func (a *App) renderMessages(visibleLines int, streamBuf, streamReasoningBuf str
 	}
 
 	// 模型选择器：实时渲染（不持久化到 messages）。
-	// 当选择器打开时，独占 viewport 以最大化列表可见区域，并对长列表做窗口滚动，
-	// 保证上下键移动时当前选中项始终可见。
 	if a.showModelPicker {
 		a.renderModelPicker(&sb, visibleLines)
 	}
@@ -1789,9 +1824,72 @@ func (a *App) renderMessages(visibleLines int, streamBuf, streamReasoningBuf str
 	return sb.String()
 }
 
+// renderHistoryOnly 渲染 a.messages 列表（不含选择器/流式缓冲等动态叠加层）。
+// 供 renderMessages 缓存复用。
+func (a *App) renderHistoryOnly() string {
+	var sb strings.Builder
+
+	// P2-5：跟踪上一条角色，用于在多轮对话的 user 消息前渲染分隔线，强化边界识别。
+	var prevRole string
+	for _, msg := range a.messages {
+		// 非首条 user 消息前加分隔线（welcome 后的首条 user 不加，避免与 Logo 紧贴）。
+		if msg.Role == "user" && prevRole != "" && prevRole != "welcome" {
+			w := 60
+			if a.width > 2 && a.width-2 < w {
+				w = a.width - 2
+			}
+			sb.WriteString(tipStyle.Render(strings.Repeat("─", w)))
+			sb.WriteString("\n")
+		}
+		switch msg.Role {
+		case "welcome":
+			sb.WriteString(a.renderWelcome())
+			sb.WriteString("\n")
+		case "user":
+			// P1-2：角色·时间标签，提供对话时间锚点。
+			sb.WriteString(tipStyle.Render(fmt.Sprintf("你 · %s", msg.Timestamp.Format("15:04"))))
+			sb.WriteString("\n")
+			sb.WriteString(userStyle.Render(msg.Content))
+			sb.WriteString("\n")
+		case "assistant":
+			// 先渲染思考过程（灰色折叠样式），再渲染正式回答。
+			if msg.ReasoningContent != "" {
+				a.renderReasoning(&sb, msg.ReasoningContent)
+			}
+			// P1-2：角色·时间标签。
+			sb.WriteString(tipStyle.Render(fmt.Sprintf("LoomCode · %s", msg.Timestamp.Format("15:04"))))
+			sb.WriteString("\n")
+			// 尝试用 glamour 渲染 markdown
+			rendered := a.renderMarkdown(msg.Content)
+			for _, line := range strings.Split(rendered, "\n") {
+				sb.WriteString(assistantStyle.Render("  " + line))
+				sb.WriteString("\n")
+			}
+		case "system":
+			sb.WriteString(systemStyle.Render("  " + msg.Content))
+			sb.WriteString("\n")
+		case "tool":
+			sb.WriteString(toolStyle.Render("  🔧 " + msg.Content))
+			sb.WriteString("\n")
+		case "error":
+			for _, line := range strings.Split(msg.Content, "\n") {
+				sb.WriteString(errorStyle.Render("  ✖ " + line))
+				sb.WriteString("\n")
+			}
+		case "cancelled":
+			// P2-3：用户主动取消与真实错误视觉区分（灰色 ⏹ vs 红色 ✖）。
+			sb.WriteString(cancelledStyle.Render("  ⏹ " + msg.Content))
+			sb.WriteString("\n")
+		}
+		prevRole = msg.Role
+	}
+
+	return sb.String()
+}
+
 // renderReasoning 以灰色斜体折叠样式渲染模型的思考过程。
 func (a *App) renderReasoning(sb *strings.Builder, reasoning string) {
-	reasoningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	reasoningStyle := lipgloss.NewStyle().Foreground(colorSystem).Italic(true)
 	lines := strings.Split(reasoning, "\n")
 	for _, line := range lines {
 		sb.WriteString(reasoningStyle.Render("    " + line))
@@ -1804,7 +1902,7 @@ func (a *App) renderWelcome() string {
 	var sb strings.Builder
 
 	// 单色 Logo（Loom = 织机）— 使用注册表样式
-	blue := lipgloss.Color(colorLogoAccent)
+	blue := lipgloss.TerminalColor(colorLogoAccent)
 
 	logo := []struct {
 		text  string
@@ -2007,16 +2105,28 @@ func (a *App) renderMarkdown(content string) string {
 func (a *App) renderStatusBar() string {
 	costDisplay := a.renderCost()
 	contextDisplay := a.renderContextUsage()
-	left := fmt.Sprintf(" %s | %s | Tab:模式 | /:命令", a.provider.Name(), a.model)
 
-	// 右侧分段拼接：context | tokens | cache | cost（为空时跳过，避免空分隔符）
+	// P2-2：窄屏逐步隐藏次要字段，避免左右段重叠挤压。
+	var left string
+	switch {
+	case a.width < 50:
+		left = fmt.Sprintf(" %s", a.model)
+	case a.width < 80:
+		left = fmt.Sprintf(" %s | %s", a.provider.Name(), a.model)
+	default:
+		left = fmt.Sprintf(" %s | %s | Tab:模式 | /:命令", a.provider.Name(), a.model)
+	}
+
+	// 右侧分段拼接：context | tokens | cache | cost（窄屏隐藏 tokens/cache）。
 	var rightParts []string
 	rightParts = append(rightParts, contextDisplay)
-	if tok := a.renderTokens(); tok != "" {
-		rightParts = append(rightParts, tok)
-	}
-	if cache := a.renderCacheHit(); cache != "" {
-		rightParts = append(rightParts, cache)
+	if a.width >= 80 {
+		if tok := a.renderTokens(); tok != "" {
+			rightParts = append(rightParts, tok)
+		}
+		if cache := a.renderCacheHit(); cache != "" {
+			rightParts = append(rightParts, cache)
+		}
 	}
 	rightParts = append(rightParts, costDisplay)
 	right := strings.Join(rightParts, " | ")
@@ -2025,7 +2135,16 @@ func (a *App) renderStatusBar() string {
 	rightW := lipgloss.Width(right)
 	padding := a.width - leftW - rightW
 	if padding < 1 {
-		padding = 1
+		// 空间不足：截断 left（纯文本）优先保证 right（cost/context）完整可见。
+		availForLeft := a.width - rightW - 1
+		if availForLeft > 0 && leftW > availForLeft {
+			left = truncateRunes(left, availForLeft)
+			leftW = lipgloss.Width(left)
+			padding = a.width - leftW - rightW
+		}
+		if padding < 1 {
+			padding = 1
+		}
 	}
 
 	bar := left + strings.Repeat(" ", padding) + right
@@ -2087,11 +2206,17 @@ func costUint64FromFloat(v float64) uint64 {
 	return math.Float64bits(v)
 }
 
+// getCostBudget 原子读取预算上限（float64 位模式还原）。
+func (a *App) getCostBudget() float64 { return math.Float64frombits(a.costBudgetBits.Load()) }
+
+// setCostBudget 原子写入预算上限（float64 转位模式存储）。
+func (a *App) setCostBudget(v float64) { a.costBudgetBits.Store(math.Float64bits(v)) }
+
 func (a *App) renderCost() string {
 	sessionCost := costFloatFromUint64(a.costSession.Load())
 	var display string
-	if a.costBudget > 0 {
-		display = fmt.Sprintf("$%.4f/$%.2f", sessionCost, a.costBudget)
+	if a.getCostBudget() > 0 {
+		display = fmt.Sprintf("$%.4f/$%.2f", sessionCost, a.getCostBudget())
 	} else {
 		display = fmt.Sprintf("$%.4f", sessionCost)
 	}
@@ -2116,7 +2241,7 @@ func (a *App) renderContextUsage() string {
 }
 
 func (a *App) renderApproval() string {
-	pw := a.pendingApproval
+	pw := a.pendingApproval.Load()
 	var sb strings.Builder
 
 	sb.WriteString(approvalTitleStyle.Render(fmt.Sprintf("  ⚠ %s: %s", pw.toolName, pw.path)))
@@ -2135,7 +2260,7 @@ func (a *App) renderApproval() string {
 }
 
 func (a *App) renderOutsideAccess() string {
-	po := a.pendingOutside
+	po := a.pendingOutside.Load()
 	var sb strings.Builder
 
 	sb.WriteString(approvalTitleStyle.Render(fmt.Sprintf("  ⚠ 请求访问工作区外文件: %s", po.path)))
@@ -2147,19 +2272,30 @@ func (a *App) renderOutsideAccess() string {
 
 func renderWriteDiff(pw *pendingWrite) string {
 	var sb strings.Builder
-	lines := strings.Split(pw.newContent, "\n")
+	allLines := strings.Split(pw.newContent, "\n")
+	lines := allLines
+	newTruncated := false
 	if len(lines) > 30 {
 		lines = lines[:30]
+		newTruncated = true
 	}
 	if pw.oldContent != "" {
 		sb.WriteString(diffHeaderStyle.Render("  --- (current)"))
 		sb.WriteString("\n")
-		oldLines := strings.Split(pw.oldContent, "\n")
+		allOld := strings.Split(pw.oldContent, "\n")
+		oldLines := allOld
+		oldTruncated := false
 		if len(oldLines) > 10 {
 			oldLines = oldLines[:10]
+			oldTruncated = true
 		}
 		for _, l := range oldLines {
 			sb.WriteString(diffDelStyle.Render("  - " + l))
+			sb.WriteString("\n")
+		}
+		// P2-4：截断处补省略提示，让用户知晓 diff 不完整。
+		if oldTruncated {
+			sb.WriteString(diffHeaderStyle.Render(fmt.Sprintf("  …(共 %d 行，省略 %d 行)", len(allOld), len(allOld)-len(oldLines))))
 			sb.WriteString("\n")
 		}
 		sb.WriteString(diffHeaderStyle.Render("  +++ (new)"))
@@ -2172,6 +2308,10 @@ func renderWriteDiff(pw *pendingWrite) string {
 		sb.WriteString(diffAddStyle.Render("  + " + l))
 		sb.WriteString("\n")
 	}
+	if newTruncated {
+		sb.WriteString(diffHeaderStyle.Render(fmt.Sprintf("  …(共 %d 行，省略 %d 行)", len(allLines), len(allLines)-len(lines))))
+		sb.WriteString("\n")
+	}
 	return sb.String()
 }
 
@@ -2179,22 +2319,36 @@ func renderEditDiff(pw *pendingWrite) string {
 	var sb strings.Builder
 	sb.WriteString(diffHeaderStyle.Render("  --- old_text"))
 	sb.WriteString("\n")
-	oldLines := strings.Split(pw.oldContent, "\n")
+	allOld := strings.Split(pw.oldContent, "\n")
+	oldLines := allOld
+	oldTruncated := false
 	if len(oldLines) > 20 {
 		oldLines = oldLines[:20]
+		oldTruncated = true
 	}
 	for _, l := range oldLines {
 		sb.WriteString(diffDelStyle.Render("  - " + l))
 		sb.WriteString("\n")
 	}
+	if oldTruncated {
+		sb.WriteString(diffHeaderStyle.Render(fmt.Sprintf("  …(共 %d 行，省略 %d 行)", len(allOld), len(allOld)-len(oldLines))))
+		sb.WriteString("\n")
+	}
 	sb.WriteString(diffHeaderStyle.Render("  +++ new_text"))
 	sb.WriteString("\n")
-	newLines := strings.Split(pw.newContent, "\n")
+	allNew := strings.Split(pw.newContent, "\n")
+	newLines := allNew
+	newTruncated := false
 	if len(newLines) > 20 {
 		newLines = newLines[:20]
+		newTruncated = true
 	}
 	for _, l := range newLines {
 		sb.WriteString(diffAddStyle.Render("  + " + l))
+		sb.WriteString("\n")
+	}
+	if newTruncated {
+		sb.WriteString(diffHeaderStyle.Render(fmt.Sprintf("  …(共 %d 行，省略 %d 行)", len(allNew), len(allNew)-len(newLines))))
 		sb.WriteString("\n")
 	}
 	return sb.String()
@@ -2417,7 +2571,7 @@ func (a *App) processQueue() tea.Cmd {
 	a.messages = append(a.messages, chatMessage{Role: "user", Content: next, Timestamp: time.Now()})
 	a.loading = true
 	ctx, cancel := context.WithCancel(context.Background())
-	a.cancelFunc = cancel
+	a.cancelFunc.Store(&cancelHolder{fn: cancel})
 	a.viewport.SetContent(a.renderMessages(a.height-8, "", ""))
 	a.viewport.GotoBottom()
 

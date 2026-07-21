@@ -31,8 +31,24 @@ func LoadWithProject(projectDir string) (*Config, error) {
 	return merged, nil
 }
 
+// loadOrWarn 加载配置文件，文件不存在返回 nil（静默），文件存在但解析失败则告警并返回 nil。
+// #6 修复：原 `modelsCfg, _ := Load(...)` 吞掉所有错误，JSON 畸形时静默回退默认值，用户无从察觉配置写错。
+func loadOrWarn(path string) *Config {
+	cfg, err := Load(path)
+	if err != nil {
+		// 文件不存在属于正常情况（可选配置），静默跳过。
+		if os.IsNotExist(err) {
+			return nil
+		}
+		// 文件存在但读取/解析/校验失败：向 stderr 告警，避免静默回退。
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config %q: %v\n", path, err)
+		return nil
+	}
+	return cfg
+}
+
 // loadGlobalConfig loads the global config from ~/.loomcode/.
-// Merges loomcode.json (env, plugins, etc.) with models.json (providers, default_provider).
+// Merges settings.json (env, plugins, permissions, etc.) with models.json (providers, default_provider).
 func loadGlobalConfig() (*Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -43,14 +59,14 @@ func loadGlobalConfig() (*Config, error) {
 
 	// Load models.json (primary: providers + default_provider)
 	modelsPath := filepath.Join(dir, "models.json")
-	modelsCfg, _ := Load(modelsPath)
+	modelsCfg := loadOrWarn(modelsPath)
 
-	// Load loomcode.json (env, plugins, permissions, etc.)
-	loomcodePath := filepath.Join(dir, "loomcode.json")
-	loomcodeCfg, _ := Load(loomcodePath)
+	// Load settings.json (env, plugins, permissions, etc.)
+	settingsPath := filepath.Join(dir, "settings.json")
+	settingsCfg := loadOrWarn(settingsPath)
 
-	// Merge: models.json provides providers, loomcode.json provides env/plugins
-	merged := mergeConfigs(modelsCfg, loomcodeCfg)
+	// Merge: models.json provides providers, settings.json provides env/plugins
+	merged := mergeConfigs(modelsCfg, settingsCfg)
 
 	if merged == nil {
 		return DefaultConfig(), nil
@@ -59,24 +75,34 @@ func loadGlobalConfig() (*Config, error) {
 	return merged, nil
 }
 
-// loadProjectConfig loads the project-level config from <projectDir>/.claude/loomcode.json.
+// loadProjectConfig loads the project-level config from <projectDir>/.loomcode/.
+// Searches for settings.json (shared) and settings.local.json (local override).
 func loadProjectConfig(projectDir string) (*Config, error) {
 	if projectDir == "" {
 		return nil, nil
 	}
 
-	projectPath := filepath.Join(projectDir, ".claude", "loomcode.json")
-	if _, err := os.Stat(projectPath); err == nil {
-		return Load(projectPath)
-	}
+	dir := filepath.Join(projectDir, ".loomcode")
 
-	return nil, nil
+	// Load settings.json (shared config, can be committed to git)
+	settingsPath := filepath.Join(dir, "settings.json")
+	settingsCfg := loadOrWarn(settingsPath)
+
+	// Load settings.local.json (local override, gitignored)
+	localPath := filepath.Join(dir, "settings.local.json")
+	localCfg := loadOrWarn(localPath)
+
+	// Merge: local overrides shared
+	return mergeConfigs(settingsCfg, localCfg), nil
 }
 
 // mergeConfigs merges two configs, with project overriding global.
 func mergeConfigs(global, project *Config) *Config {
 	if project == nil {
 		return global
+	}
+	if global == nil {
+		return project
 	}
 
 	merged := *global // shallow copy

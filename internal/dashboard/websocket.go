@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"sync"
@@ -82,23 +83,32 @@ func (h *WSHub) run() {
 			log.Printf("WebSocket client disconnected: %d total", total)
 
 		case message := <-h.broadcast:
+			// 先 RLock 遍历发送；缓冲满的 client 收集到 slowClients，
+			// 遍历结束后再 Lock 统一删除。避免在 range 迭代中修改 map 导致部分 client 被跳过漏收。
 			h.mu.RLock()
+			var slowClients []*WSClient
 			for client := range h.clients {
 				select {
 				case client.send <- message:
 				default:
-					// 发送缓冲区满，断开连接
-					h.mu.RUnlock()
-					h.mu.Lock()
+					// 发送缓冲区满，标记待删除
+					slowClients = append(slowClients, client)
+				}
+			}
+			h.mu.RUnlock()
+
+			if len(slowClients) > 0 {
+				h.mu.Lock()
+				for _, client := range slowClients {
 					if _, ok := h.clients[client]; ok {
 						delete(h.clients, client)
 						client.closeSend()
 					}
-					h.mu.Unlock()
-					h.mu.RLock()
 				}
+				total := len(h.clients)
+				h.mu.Unlock()
+				log.Printf("WebSocket dropped %d slow client(s): %d remaining", len(slowClients), total)
 			}
-			h.mu.RUnlock()
 		}
 	}
 }
@@ -126,7 +136,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	origin := r.Header.Get("Origin")
-	if !s.isAllowedOrigin(origin) {
+	if !s.isAllowedOrigin(origin, r.RemoteAddr) {
 		http.Error(w, "Origin not allowed", http.StatusForbidden)
 		return
 	}
@@ -198,7 +208,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 // isAllowedOrigin 检查 Origin 是否允许（按精确 host 匹配，防止前缀绕过 CSWSH）。
-func (s *Server) isAllowedOrigin(origin string) bool {
+// #5 修复：空 Origin（非浏览器客户端如 CLI/监控脚本）在 loopback 场景下放行，
+// 真正的防线是 token + localhost 绑定；非 loopback 的空 Origin 仍拒绝。
+func (s *Server) isAllowedOrigin(origin, remoteAddr string) bool {
+	if origin == "" {
+		// 空 Origin：仅对 loopback 客户端放行（剥离端口后匹配）。
+		host := remoteAddr
+		if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+			host = h
+		}
+		switch host {
+		case "localhost", "127.0.0.1", "::1":
+			return true
+		}
+		return false
+	}
 	u, err := url.Parse(origin)
 	if err != nil {
 		return false

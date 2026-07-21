@@ -6,7 +6,7 @@
 
 - **形态**: 纯 CLI 工具（暂不做桌面应用）
 - **语言**: Go（CGO_ENABLED=0 单二进制分发）
-- **配置**: TOML 驱动
+- **配置**: JSON 驱动（settings.json + models.json）
 - **插件协议**: MCP（stdio + HTTP）
 - **记忆存储**: SQLite FTS5
 - **TUI**: Bubble Tea + Lip Gloss
@@ -31,7 +31,7 @@
 
 ```
 1. go mod init + 目录结构           → `go build` 成功
-2. TOML 配置加载                    → 打印配置验证
+2. JSON 配置加载                    → 打印配置验证
 3. OpenAI 通用 Provider             → curl 式调用 API 成功
 4. DeepSeek Provider                → 流式推理输出
 5. 工具注册 + 执行                  → read_file/write_file/bash 可调用
@@ -52,12 +52,12 @@
 
 **文件**: `internal/config/config.go`
 
-- [ ] TOML 解析（BurntSushi/toml）
+- [ ] JSON 解析（encoding/json）
 - [ ] Provider 配置结构定义
 - [ ] Model 配置结构（含 cost、context_window、capabilities）
-- [ ] 配置加载优先级：CLI flags > `./loomcode.toml` > `~/.loomcode/config.toml` > 内置默认
-- [ ] 环境变量密钥注入（`api_key_env`）
-- [ ] 示例配置文件 `loomcode.example.toml`
+- [ ] 配置加载优先级：先合并 `~/.loomcode/{models.json, settings.json}`（global），再叠加 `<project>/.loomcode/{settings.json, settings.local.json}`（project > global，local > shared）
+- [ ] 环境变量密钥注入（`api_key: "${ENV_VAR}"`，旧 `api_key_env` 已弃用）
+- [ ] 示例配置文件 `settings.example.json` + `models.example.json`
 
 ### 1.3 Provider 层（可扩展设计）
 
@@ -369,7 +369,8 @@ loomcode/
 │       └── voice.go              # 语音输入
 ├── scripts/
 │   └── install.sh                # 一键安装脚本
-├── loomcode.example.toml            # 示例配置
+├── settings.example.json            # 示例主配置
+├── models.example.json             # 示例模型配置
 ├── Makefile
 ├── go.mod
 ├── go.sum
@@ -385,7 +386,7 @@ loomcode/
 |------|------|------|
 | `github.com/charmbracelet/bubbletea` | TUI 框架 | latest |
 | `github.com/charmbracelet/lipgloss` | TUI 样式 | latest |
-| `github.com/BurntSushi/toml` | TOML 解析 | v1.x |
+| `github.com/BurntSushi/toml` | TOML 解析（仅历史迁移输入，活配置已统一为 JSON） | v1.x |
 | `github.com/mattn/go-sqlite3` | SQLite 驱动 | latest |
 | `modernc.org/sqlite` | 纯 Go SQLite（备选） | latest |
 | `github.com/sashabaranov/go-openai` | OpenAI API 客户端 | latest |
@@ -396,7 +397,7 @@ loomcode/
 
 1. **Go 语言** — 借鉴 Reasonix 的单二进制优势，性能优于 TypeScript
 2. **Provider 插件化** — Adapter 工厂模式，任何厂商通过配置接入
-3. **TOML 配置** — 比 JSON 更人性化，Reasonix 验证的选择
+3. **JSON 配置** — 结构化、编辑器 JSON Schema 自动补全友好，Reasonix 验证的选择
 4. **Capabilities 自适应** — Agent 根据 Provider 能力自动调整策略
 5. **SQLite FTS5** — 借鉴 MiMo 的全文搜索记忆
 6. **MCP 协议** — 两者都支持的标准插件协议

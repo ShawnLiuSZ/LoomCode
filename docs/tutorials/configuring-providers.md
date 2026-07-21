@@ -31,28 +31,34 @@ loomcode
 
 ### 方式二：配置文件（推荐）
 
-创建 `loomcode.toml`：
+创建 `models.json`（或 `settings.json`）：
 
-```toml
-default_provider = "deepseek"
-
-[[providers]]
-name = "deepseek"
-display_name = "DeepSeek"
-kind = "deepseek"
-base_url = "https://api.deepseek.com"
-api_key_env = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
-
-[[providers.models]]
-id = "deepseek-v4-flash"
-name = "DeepSeek V4 Flash"
-context_window = 131072
-
-[[providers.models]]
-id = "deepseek-v4-pro"
-name = "DeepSeek V4 Pro"
-context_window = 131072
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "context_window": 131072
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ## Provider 配置详解
@@ -65,70 +71,72 @@ context_window = 131072
 | `display_name` | string | ❌ | 显示名称 |
 | `kind` | string | ✅ | 适配器类型（deepseek/openai/mimo） |
 | `base_url` | string | ✅ | API 端点地址 |
-| `api_key_env` | string | ❌ | API Key 的环境变量名 |
+| `api_key` | string | ❌ | API Key，支持 `${ENV_VAR}` 展开（推荐）；旧 `api_key_env` 已废弃 |
 | `auth_method` | string | ❌ | 认证方式（默认 Bearer） |
 | `default_model` | string | ❌ | 默认模型 ID |
 
 ### 模型配置
 
-```toml
-[[providers.models]]
-id = "model-id"
-name = "Model Display Name"
-context_window = 131072
-
-[providers.models.cost]
-input = 0.14          # 每百万 token 输入价格（美元）
-cached_input = 0.014  # 缓存输入价格
-output = 0.28         # 每百万 token 输出价格
-
-[providers.models.capabilities]
-reasoning = false     # 支持推理
-tool_call = true      # 支持工具调用
-prefix_cache = true   # 支持前缀缓存
-vision = false        # 支持图像
-voice = false         # 支持语音
+```json
+{
+  "id": "model-id",
+  "name": "Model Display Name",
+  "context_window": 131072,
+  "cost": {
+    "input": 0.14,
+    "cached_input": 0.014,
+    "output": 0.28
+  },
+  "capabilities": {
+    "reasoning": false,
+    "tool_call": true,
+    "prefix_cache": true,
+    "vision": false,
+    "voice": false
+  }
+}
 ```
 
 ## 多 Provider 配置
 
 同时配置多个 Provider：
 
-```toml
-default_provider = "deepseek"
-
-[[providers]]
-name = "deepseek"
-kind = "deepseek"
-base_url = "https://api.deepseek.com"
-api_key_env = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
-
-[[providers.models]]
-id = "deepseek-v4-flash"
-name = "DeepSeek V4 Flash"
-
-[[providers]]
-name = "openai"
-kind = "openai"
-base_url = "https://api.openai.com/v1"
-api_key_env = "OPENAI_API_KEY"
-default_model = "gpt-4o"
-
-[[providers.models]]
-id = "gpt-4o"
-name = "GPT-4o"
-
-[[providers]]
-name = "mimo"
-kind = "mimo"
-base_url = "https://api.mimo.ai/v1"
-api_key_env = "MIMO_API_KEY"
-default_model = "mimo-v2"
-
-[[providers.models]]
-id = "mimo-v2"
-name = "MiMo V2"
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        { "id": "deepseek-v4-flash", "name": "DeepSeek V4 Flash" }
+      ]
+    },
+    {
+      "name": "openai",
+      "kind": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "${OPENAI_API_KEY}",
+      "default_model": "gpt-4o",
+      "models": [
+        { "id": "gpt-4o", "name": "GPT-4o" }
+      ]
+    },
+    {
+      "name": "mimo",
+      "kind": "mimo",
+      "base_url": "https://api.mimo.ai/v1",
+      "api_key": "${MIMO_API_KEY}",
+      "default_model": "mimo-v2",
+      "models": [
+        { "id": "mimo-v2", "name": "MiMo V2" }
+      ]
+    }
+  ]
+}
 ```
 
 ## 切换 Provider
@@ -152,10 +160,13 @@ loomcode --provider deepseek --model deepseek-v4-pro
 
 ## 配置文件位置
 
-LoomCode 按优先级查找配置文件：
+LoomCode 使用 JSON 配置，按以下顺序合并加载（来自 `internal/config/loader.go`）：
 
-1. `./loomcode.toml` - 项目目录（最高优先级）
-2. `~/.loomcode/config.toml` - 全局配置
+1. `--config` 指定的路径
+2. 先合并 `~/.loomcode/{models.json, settings.json}`（global）
+3. 再叠加 `<project>/.loomcode/{settings.json, settings.local.json}`（project 覆盖 global；`settings.local.json` 覆盖 `settings.json`）
+
+优先级：**project > global，local > shared**。旧版 TOML 配置（`loomcode.toml` / `config.toml` / `models.toml`）仅作迁移输入，已废弃。
 
 ## 环境变量加载
 

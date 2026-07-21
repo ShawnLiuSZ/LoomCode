@@ -36,7 +36,7 @@ LoomCode 采用经典的分层架构，从上到下分为四层：
 | **Provider First** | 所有模型能力通过 Provider 抽象，零硬编码厂商 |
 | **Capability-Driven** | Agent 行为由 Provider 的 Capabilities 声明驱动，而非 if-else 判断厂商 |
 | **Single Binary** | CGO_ENABLED=0 静态编译，一个文件即可部署 |
-| **Config Over Code** | 模型、工具、插件全部通过 TOML 配置文件声明 |
+| **Config Over Code** | 模型、工具、插件全部通过 JSON 配置文件声明 |
 | **Compose Over Inherit** | 通过接口组合构建复杂行为，避免深层继承 |
 
 ---
@@ -112,7 +112,7 @@ cmd/loomcode/main.go
 
 | 模块 | 职责 | 关键抽象 |
 |------|------|---------|
-| **config** | TOML 配置加载、环境变量注入、配置优先级 | `Config` 结构体 |
+| **config** | JSON 配置加载、环境变量注入、配置优先级 | `Config` 结构体 |
 | **provider** | 多厂商模型接入、能力声明、成本计算 | `Provider` 接口, `Adapter` 接口 |
 | **tool** | 工具注册、执行、修复、并行调度 | `Tool` 接口, `ToolRegistry` |
 | **context** | 三层上下文分区、缓存管理、检查点重建 | `ContextPartition` |
@@ -237,20 +237,28 @@ func (a *Agent) configureLoop(p provider.Provider) {
 
 只需 3 步，无需修改任何代码：
 
-```toml
-# 步骤1: 编辑 loomcode.toml
-[[providers]]
-name         = "qwen"
-display_name = "通义千问"
-kind         = "openai"         # 使用通用 OpenAI 适配器
-base_url     = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-api_key_env  = "DASHSCOPE_API_KEY"
-
-  [[providers.models]]
-  id    = "qwen-max"
-  name  = "Qwen Max"
-  context_window = 32768
-  capabilities   = { tool_call = true }
+```json
+// 步骤1: 编辑 settings.json（或 models.json）
+{
+  "providers": [
+    {
+      "name": "qwen",
+      "display_name": "通义千问",
+      "kind": "openai",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "${DASHSCOPE_API_KEY}",
+      "default_model": "qwen-max",
+      "models": [
+        {
+          "id": "qwen-max",
+          "name": "Qwen Max",
+          "context_window": 32768,
+          "capabilities": { "tool_call": true }
+        }
+      ]
+    }
+  ]
+}
 
 # 步骤2: 设置环境变量
 export DASHSCOPE_API_KEY="sk-xxx"
@@ -505,53 +513,57 @@ ToolExecutor.Execute(toolCalls []ToolCall)
 ### 8.1 配置优先级
 
 ```
-CLI 标志 (-p deepseek)       ← 最高优先级
+--config <path>                            ← CLI 参数（最高优先级）
     │
-./loomcode.toml                 ← 项目级配置
+<project>/.loomcode/settings.local.json   ← 项目本地覆盖（gitignore）
+<project>/.loomcode/settings.json         ← 项目级共享配置
     │
-~/.loomcode/config.toml         ← 用户级配置
+~/.loomcode/{settings.json, models.json}  ← 全局配置（合并加载）
     │
 内置��认值                    ← 最低优先级
 ```
 
 ### 8.2 配置结构
 
-```toml
-# 默认 Provider
-default_provider = "deepseek"
-
-# Provider 定义（可无限扩展）
-[[providers]]
-name         = "deepseek"
-display_name = "DeepSeek"
-kind         = "deepseek"
-base_url     = "https://api.deepseek.com"
-api_key_env  = "DEEPSEEK_API_KEY"
-
-  [[providers.models]]
-  id             = "deepseek-v4-flash"
-  name           = "DeepSeek V4 Flash"
-  cost           = { input = 0.14, cached_input = 0.014, output = 0.28 }
-  context_window = 131072
-
-# 插件 (MCP 服务器)
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# 权限
-[permissions]
-shell_allowlist = ["git", "npm", "go", "ls", "cat"]
-
-# 搜索
-[search]
-engine = "bing"  # bing|baidu|searxng|tavily|perplexity
-
-# 实验性功能
-[experimental]
-maxMode      = false
-batchTool    = false
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "cost": { "input": 0.14, "cached_input": 0.014, "output": 0.28 },
+          "context_window": 131072
+        }
+      ]
+    }
+  ],
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    }
+  ],
+  "permissions": {
+    "shell_allowlist": ["git", "npm", "go", "ls", "cat"]
+  },
+  "search": {
+    "engine": "bing"
+  },
+  "experimental": {
+    "maxMode": false,
+    "batchTool": false
+  }
+}
 ```
 
 ---
@@ -626,20 +638,22 @@ Session Start
 
 ### 10.3 权限白名单
 
-```toml
-[permissions]
-# Bash 命令白名单（精细到参数级别）
-shell_allowlist = [
-    "git status",
-    "git diff",
-    "git log",
-    "npm test",
-    "go build",
-    "go test",
-    "ls",
-    "cat",
-    "find . -name",     # 允许 find -name，拒绝 find -exec
-]
+```json
+{
+  "permissions": {
+    "shell_allowlist": [
+      "git status",
+      "git diff",
+      "git log",
+      "npm test",
+      "go build",
+      "go test",
+      "ls",
+      "cat",
+      "find . -name"
+    ]
+  }
+}
 ```
 
 ---
@@ -649,7 +663,7 @@ shell_allowlist = [
 | 技术 | 理由 |
 |------|------|
 | **Go** | 单二进制分发、零依赖部署、高性能、Reasonix 验证 |
-| **TOML** | 比 JSON 更人性化、支持注释、Reasonix 验证 |
+| **JSON** | 结构化、编辑器 JSON Schema 自动补全、Reasonix 验证 |
 | **Bubble Tea** | Go 生态最成熟 TUI 框架、Elm 架构 |
 | **SQLite FTS5** | 全文搜索、嵌入式、零运维、MiMo 验证 |
 | **MCP** | 标准插件协议、stdio+HTTP 双传输、生态成熟 |
@@ -684,7 +698,7 @@ shell_allowlist = [
 | 维度 | DeepSeek-Reasonix | MiMo-Code | LoomCode |
 |------|-------------------|-----------|-------|
 | **语言** | Go (v2) | TypeScript + Bun | Go |
-| **配置** | TOML | JSON/JSONC | TOML |
+| **配置** | TOML | JSON/JSONC | JSON |
 | **Provider** | 配置驱动 | 配置驱动 | Adapter 工厂模式 |
 | **Agent模式** | 单/双模型 | Build/Plan/Compose | Build/Plan/Compose/Max |
 | **记忆** | 文件层级 | SQLite FTS5 | SQLite FTS5 + 文件层级 |

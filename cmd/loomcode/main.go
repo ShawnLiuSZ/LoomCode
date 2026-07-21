@@ -240,14 +240,14 @@ func setupCommand() {
 		os.Exit(1)
 	}
 
-	// 写入 ~/.loomcode/loomcode.json（全局配置目录）
+	// 写入 ~/.loomcode/settings.json（全局配置目录）
 	home, _ := os.UserHomeDir()
 	configDir := filepath.Join(home, ".loomcode")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "创建配置目录失败: %v\n", err)
 		os.Exit(1)
 	}
-	configPath := filepath.Join(configDir, "loomcode.json")
+	configPath := filepath.Join(configDir, "settings.json")
 	if err := config.WriteConfig(cfg, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "写入 %s 失败: %v\n", configPath, err)
 		os.Exit(1)
@@ -302,7 +302,7 @@ func connectPlugins(ctx context.Context, plugins []config.PluginConfig, tools *t
 		case "sse":
 			err = pm.ConnectSSE(ctx, pc.Name, pc.URL)
 		case "stdio":
-			err = pm.Connect(pc.Name, pc.Command, pc.Args...)
+			err = pm.Connect(pc.Name, pc.Command, pc.Args, pc.Env)
 		default:
 			fmt.Fprintf(os.Stderr, "Warning: MCP plugin %q has neither command nor url; skipped\n", pc.Name)
 			continue
@@ -639,7 +639,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "  loomcode [options] setup          Run configuration wizard\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options] chat           Interactive TUI\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options] dashboard      Start web dashboard\n")
-	fmt.Fprintf(os.Stderr, "  loomcode [options] schema         Print JSON Schema for loomcode.json\n")
+	fmt.Fprintf(os.Stderr, "  loomcode [options] schema         Print JSON Schema for settings.json\n")
 	fmt.Fprintf(os.Stderr, "  loomcode [options]                Start interactive TUI (default)\n\n")
 	fmt.Fprintf(os.Stderr, "Examples:\n")
 	fmt.Fprintf(os.Stderr, "  loomcode                                    Start TUI\n")

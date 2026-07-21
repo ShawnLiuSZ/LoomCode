@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,11 +143,11 @@ func TestLoadDefault(t *testing.T) {
 }
 
 func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
-	// 模拟项目目录： loomcode.json 只有空数组，没有 provider
+	// 模拟项目目录： settings.json 只有空数组，没有 provider
 	projectDir := t.TempDir()
 	globalDir := t.TempDir()
 
-	emptyLocal := filepath.Join(projectDir, "loomcode.json")
+	emptyLocal := filepath.Join(projectDir, "settings.json")
 	if err := os.WriteFile(emptyLocal, []byte(`{"providers": []}`), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +156,7 @@ func TestLoadDefault_EmptyLocalFallsBack(t *testing.T) {
 	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	globalConfig := filepath.Join(globalConfigDir, "loomcode.json")
+	globalConfig := filepath.Join(globalConfigDir, "settings.json")
 	content := `{
   "default_provider": "mimo",
   "providers": [
@@ -319,8 +320,8 @@ func TestLoadDefault_LoomcodeJsonPriorityOverModelsJson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loomcodeJSON := filepath.Join(globalConfigDir, "loomcode.json")
-	if err := os.WriteFile(loomcodeJSON, []byte(`{
+	settingsJSON := filepath.Join(globalConfigDir, "settings.json")
+	if err := os.WriteFile(settingsJSON, []byte(`{
   "default_provider": "openai",
   "providers": [
     {
@@ -360,9 +361,9 @@ func TestLoadDefault_LoomcodeJsonPriorityOverModelsJson(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadDefault() error: %v", err)
 	}
-	// loomcode.json has higher priority than models.json
+	// settings.json has higher priority than models.json
 	if cfg.DefaultProvider != "openai" {
-		t.Errorf("DefaultProvider = %q, want %q (loomcode.json should win)", cfg.DefaultProvider, "openai")
+		t.Errorf("DefaultProvider = %q, want %q (settings.json should win)", cfg.DefaultProvider, "openai")
 	}
 	if len(cfg.Providers) != 1 || cfg.Providers[0].Name != "openai" {
 		t.Errorf("expected provider 'openai', got %+v", cfg.Providers)
@@ -522,5 +523,167 @@ func TestLoad_Validation(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Error("expected error for invalid config")
+	}
+}
+
+func TestExpandEnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		envMaps  []map[string]string
+		sysEnv   string
+		expected string
+	}{
+		{
+			name:     "plain string not expanded",
+			value:    "sk-12345",
+			expected: "sk-12345",
+		},
+		{
+			name:     "env var from project env",
+			value:    "${MY_KEY}",
+			envMaps:  []map[string]string{{"MY_KEY": "project-value"}},
+			expected: "project-value",
+		},
+		{
+			name:     "env var from global env",
+			value:    "${MY_KEY}",
+			envMaps:  []map[string]string{nil, {"MY_KEY": "global-value"}},
+			expected: "global-value",
+		},
+		{
+			name:     "env var from system env",
+			value:    "${MY_TEST_SYS_KEY}",
+			sysEnv:   "sys-value",
+			expected: "sys-value",
+		},
+		{
+			name:     "env var not found returns as-is",
+			value:    "${NONEXISTENT_KEY}",
+			expected: "${NONEXISTENT_KEY}",
+		},
+		{
+			name:     "empty env var name",
+			value:    "${}",
+			expected: "${}",
+		},
+		{
+			name:     "project env overrides system env",
+			value:    "${MY_TEST_SYS_KEY}",
+			envMaps:  []map[string]string{{"MY_TEST_SYS_KEY": "project-wins"}},
+			expected: "project-wins",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.sysEnv != "" {
+				t.Setenv("MY_TEST_SYS_KEY", tt.sysEnv)
+			}
+			result := expandEnvVar(tt.value, tt.envMaps...)
+			if result != tt.expected {
+				t.Errorf("expandEnvVar(%q) = %q, want %q", tt.value, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestResolveAPIKeys_EnvVarExpansion(t *testing.T) {
+	t.Setenv("DEEPSEEK_TEST_KEY", "resolved-key")
+
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{
+				Name:   "deepseek",
+				Kind:   "deepseek",
+				APIKey: "${DEEPSEEK_TEST_KEY}",
+			},
+		},
+	}
+
+	if err := cfg.resolveAPIKeys(nil, nil); err != nil {
+		t.Fatalf("resolveAPIKeys: %v", err)
+	}
+
+	if cfg.Providers[0].APIKey != "resolved-key" {
+		t.Errorf("expected APIKey to be 'resolved-key', got %q", cfg.Providers[0].APIKey)
+	}
+}
+
+func TestResolveAPIKeys_ApiKeyEnv_BackwardCompatible(t *testing.T) {
+	t.Setenv("MY_BACKUP_KEY", "backup-value")
+
+	cfg := &Config{
+		Providers: []ProviderConfig{
+			{
+				Name:      "test",
+				Kind:      "openai",
+				BaseURL:   "https://api.openai.com",
+				APIKeyEnv: "MY_BACKUP_KEY",
+			},
+		},
+	}
+
+	if err := cfg.resolveAPIKeys(nil, nil); err != nil {
+		t.Fatalf("resolveAPIKeys: %v", err)
+	}
+
+	if cfg.Providers[0].APIKey != "backup-value" {
+		t.Errorf("expected APIKey to be 'backup-value', got %q", cfg.Providers[0].APIKey)
+	}
+}
+
+// TestUnmarshalJSON_PluginsAndMcpServersMerged #3 修复：plugins 与 mcpServers 共存时始终合并。
+func TestUnmarshalJSON_PluginsAndMcpServersMerged(t *testing.T) {
+	data := []byte(`{
+		"plugins": [
+			{"name": "legacy", "command": "legacy-cmd"}
+		],
+		"mcpServers": {
+			"claude": {"type": "stdio", "command": "claude-cmd"},
+			"unamed": {"type": "sse", "url": "http://localhost:3000"}
+		}
+	}`)
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if len(cfg.Plugins) != 3 {
+		t.Fatalf("expected 3 plugins, got %d: %+v", len(cfg.Plugins), cfg.Plugins)
+	}
+
+	names := make(map[string]PluginConfig)
+	for _, p := range cfg.Plugins {
+		names[p.Name] = p
+	}
+
+	if names["legacy"].Command != "legacy-cmd" {
+		t.Errorf("legacy plugin command = %q, want legacy-cmd", names["legacy"].Command)
+	}
+	if names["claude"].Command != "claude-cmd" {
+		t.Errorf("claude plugin command = %q, want claude-cmd", names["claude"].Command)
+	}
+	if names["unamed"].URL != "http://localhost:3000" {
+		t.Errorf("unamed plugin url = %q, want http://localhost:3000", names["unamed"].URL)
+	}
+}
+
+// TestUnmarshalJSON_McpServersOnly #3 修复：仅 mcpServers 时正确转换为 plugins。
+func TestUnmarshalJSON_McpServersOnly(t *testing.T) {
+	data := []byte(`{
+		"mcpServers": {
+			"test": {"type": "stdio", "command": "test-cmd"}
+		}
+	}`)
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if len(cfg.Plugins) != 1 || cfg.Plugins[0].Name != "test" {
+		t.Errorf("expected plugin 'test', got %+v", cfg.Plugins)
 	}
 }

@@ -68,7 +68,7 @@ loomcode --provider mimo
 - `deepseek` - DeepSeek V4 系列
 - `openai` - GPT-4、GPT-3.5 等
 - `mimo` - Xiaomi MiMo
-- 任何在 `loomcode.toml` 中配置的 Provider
+- 任何在 `settings.json` / `models.json` 中配置的 Provider
 
 ### `--model <id>`
 
@@ -85,8 +85,8 @@ loomcode --model deepseek-v4-pro
 指定配置文件路径。
 
 ```bash
-loomcode --config ./my-config.toml
-loomcode --config ~/.loomcode/config.toml
+loomcode --config ./my-config.json
+loomcode --config ~/.loomcode/settings.json
 ```
 
 ### `--env-file <path>`
@@ -154,11 +154,13 @@ loomcode --help
 
 ## 配置文件
 
-LoomCode 按优先级查找配置文件：
+LoomCode 使用 JSON 配置，按以下顺序合并加载（来自 `internal/config/loader.go`）：
 
 1. `--config` 指定的路径
-2. `./loomcode.toml` - 项目目录
-3. `~/.loomcode/config.toml` - 全局配置
+2. 先合并 `~/.loomcode/{models.json, settings.json}`（global）
+3. 再叠加 `<project>/.loomcode/{settings.json, settings.local.json}`（project 覆盖 global；`settings.local.json` 覆盖 `settings.json`）
+
+优先级：**project > global，local > shared**。旧版 TOML 配置（`loomcode.toml` / `config.toml` / `models.toml`）仅作迁移输入，已废弃。
 
 ## 示例
 
@@ -209,7 +211,7 @@ loomcode --session session_1234567890
 
 ```bash
 # 使用指定配置文件
-loomcode --config ./project.toml run "任务"
+loomcode --config ./project.json run "任务"
 
 # 使用指定环境变量
 loomcode --env-file ./production.env run "任务"
@@ -238,8 +240,8 @@ go install github.com/ShawnLiuSZ/loomcode/cmd/loomcode@latest
 
 ```bash
 # 检查配置文件路径
-ls -la loomcode.toml
-ls -la ~/.loomcode/config.toml
+ls -la ~/.loomcode/settings.json
+ls -la ~/.loomcode/models.json
 ```
 
 ### 权限问题
@@ -252,6 +254,6 @@ chmod -R 755 ~/.loomcode/
 
 ## 下一步
 
-- [配置文件格式](config-format.md) - loomcode.toml 完整语法
+- [配置文件格式](config-format.md) - settings.json / models.json 完整语法（JSON）
 - [内置工具列表](built-in-tools.md) - 所有内置工具
 - [快速入门](../tutorials/getting-started.md) - 5 分钟上手

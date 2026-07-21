@@ -35,13 +35,14 @@ aliases:
 ## 配置优先级
 
 ```
-CLI 标志 (--provider)          ← 最高优先级
+--config <path>                            ← CLI 参数（最高优先级）
     │
-./loomcode.toml                ← 项目级配置
+<project>/.loomcode/settings.local.json   ← 项目本地覆盖（gitignore）
+<project>/.loomcode/settings.json         ← 项目级共享配置
     │
-~/.loomcode/loomcode.toml      ← 用户级配置
+~/.loomcode/{settings.json, models.json}  ← 全局配置（合并加载）
     │
-内置默认值                      ← 最低优先级
+内置默认值                                ← 最低优先级（旧版 TOML 仅迁移输入，已废弃）
 ```
 
 ## 环境变量加载顺序
@@ -57,46 +58,49 @@ CLI 标志 (--provider)          ← 最高优先级
 
 ## 配置文件结构
 
-```toml
-# 默认 Provider
-default_provider = "deepseek"
-
-# Provider 定义
-[[providers]]
-name          = "deepseek"
-display_name  = "DeepSeek"
-kind          = "deepseek"
-base_url      = "https://api.deepseek.com"
-api_key_env   = "DEEPSEEK_API_KEY"
-default_model = "deepseek-v4-flash"
-
-  [[providers.models]]
-  id             = "deepseek-v4-flash"
-  name           = "DeepSeek V4 Flash"
-  context_window = 131072
-
-  [providers.models.cost]
-  input        = 0.14
-  cached_input = 0.014
-  output       = 0.28
-
-  [providers.models.capabilities]
-  tool_call    = true
-  prefix_cache = true
-
-# MCP 插件
-[[plugins]]
-name    = "my-tool"
-command = "node"
-args    = ["./mcp-server.js"]
-
-# 权限
-[permissions]
-shell_allowlist = ["git", "npm", "go", "ls"]
-
-# 搜索
-[search]
-engine = "bing"
+```json
+{
+  "default_provider": "deepseek",
+  "providers": [
+    {
+      "name": "deepseek",
+      "display_name": "DeepSeek",
+      "kind": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "default_model": "deepseek-v4-flash",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "context_window": 131072,
+          "cost": {
+            "input": 0.14,
+            "cached_input": 0.014,
+            "output": 0.28
+          },
+          "capabilities": {
+            "tool_call": true,
+            "prefix_cache": true
+          }
+        }
+      ]
+    }
+  ],
+  "plugins": [
+    {
+      "name": "my-tool",
+      "command": "node",
+      "args": ["./mcp-server.js"]
+    }
+  ],
+  "permissions": {
+    "shell_allowlist": ["git", "npm", "go", "ls"]
+  },
+  "search": {
+    "engine": "bing"
+  }
+}
 ```
 
 ## 交互式配置向导
@@ -109,7 +113,7 @@ loomcode setup
 1. 选择 Provider
 2. 输入 API Key
 3. 选择模型
-4. 生成 `loomcode.toml` + `.env`
+4. 生成 `settings.json` + `.env`
 5. 输出 JSON Schema
 
 ## JSON Schema 校验
@@ -118,7 +122,7 @@ loomcode setup
 loomcode schema > ~/.loomcode/schema.json
 ```
 
-在 `loomcode.toml` 顶部添加 `#:schema ~/.loomcode/schema.json`，编辑器即可获得字段补全、类型校验、枚举提示。
+在编辑器中关联 `~/.loomcode/schema.json` 到 `settings.json` / `models.json`，即可获得字段补全、类型校验、枚举提示。
 
 ## 关键方法
 

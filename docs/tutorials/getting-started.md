@@ -4,7 +4,7 @@
 
 ## 前置条件
 
-- Go 1.21 或更高版本
+- Go 1.25 或更高版本
 - 一个 AI 模型 API Key（DeepSeek、OpenAI 或其他兼容接口）
 
 ## 安装
@@ -41,11 +41,12 @@ brew install loomcode
 ### 1. 创建配置文件
 
 ```bash
-# 交互式配置向导
+# 交互式配置向导（推荐）
 loomcode setup
 
-# 或手动创建
-cp loomcode.example.toml loomcode.toml
+# 或手动复制示例配置到全局配置目录
+cp settings.example.json ~/.loomcode/settings.json
+cp models.example.json ~/.loomcode/models.json
 ```
 
 ### 2. 设置 API Key

@@ -34,7 +34,7 @@
 #### 1. 环境准备
 
 ```bash
-# 安装 Go 1.21+
+# 安装 Go 1.25+
 brew install go
 
 # 克隆仓库
@@ -70,8 +70,8 @@ git checkout -b fix/your-bug-fix
 - 公开函数和类型添加注释
 
 **配置格式：**
-- 配置使用 JSON 格式（`loomcode.json` + `models.json`）
-- 参考 [`loomcode.example.json`](loomcode.example.json) 和 [`models.example.json`](models.example.json)
+- 配置使用 JSON 格式（`settings.json` + `models.json`）
+- 参考 [`settings.example.json`](settings.example.json) 和 [`models.example.json`](models.example.json)
 
 **Provider 扩展：**
 - 新增 Provider 适配器放在 `internal/provider/<name>/` 下

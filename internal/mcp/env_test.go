@@ -79,3 +79,49 @@ func TestFilterEnvForSubprocess_NoDuplicates(t *testing.T) {
 		seen[e] = true
 	}
 }
+
+// TestMergeEnv_ExtraOverridesBase #1 修复：extra 应覆盖 base 同名 key。
+func TestMergeEnv_ExtraOverridesBase(t *testing.T) {
+	base := []string{"PATH=/usr/bin", "HOME=/home/user", "USER=u", "LANG=C"}
+	extra := map[string]string{
+		"PATH":  "/custom/bin:/usr/bin",
+		"USER":  "override-user",
+		"NEW_KEY": "new-value",
+	}
+
+	merged := mergeEnv(base, extra)
+
+	got := make(map[string]string)
+	for _, e := range merged {
+		for i := 0; i < len(e); i++ {
+			if e[i] == '=' {
+				got[e[:i]] = e[i+1:]
+				break
+			}
+		}
+	}
+
+	if got["PATH"] != "/custom/bin:/usr/bin" {
+		t.Errorf("PATH = %q, want /custom/bin:/usr/bin", got["PATH"])
+	}
+	if got["USER"] != "override-user" {
+		t.Errorf("USER = %q, want override-user", got["USER"])
+	}
+	if got["NEW_KEY"] != "new-value" {
+		t.Errorf("NEW_KEY = %q, want new-value", got["NEW_KEY"])
+	}
+	if got["HOME"] != "/home/user" {
+		t.Errorf("HOME = %q, want /home/user", got["HOME"])
+	}
+	if got["LANG"] != "C" {
+		t.Errorf("LANG = %q, want C", got["LANG"])
+	}
+}
+
+func TestMergeEnv_EmptyExtra(t *testing.T) {
+	base := []string{"PATH=/usr/bin"}
+	merged := mergeEnv(base, nil)
+	if len(merged) != 1 || merged[0] != "PATH=/usr/bin" {
+		t.Errorf("expected base unchanged, got %v", merged)
+	}
+}

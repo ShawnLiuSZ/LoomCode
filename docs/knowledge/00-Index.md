@@ -32,7 +32,7 @@ _专为 ClaudeCode、Codex、LoomCode 等智能体的快速访问：_
 **LoomCode**（原 Helix，2026-07-13 更名）是纯 CLI 形态、基于 Go 的可扩展多模型 Agent 编程工具。融合 DeepSeek-Reasonix（Planner/Executor 分离 session）和 MiMo-Code（Prefix Cache 调度）的设计思想。
 
 - **语言**：Go（CGO_ENABLED=0 单二进制分发）
-- **配置**：TOML + JSON Schema
+- **配置**：JSON + JSON Schema
 - **TUI**：Bubble Tea + Lip Gloss
 - **记忆存储**：SQLite FTS5
 - **插件协议**：MCP（stdio + HTTP）
@@ -55,7 +55,7 @@ _专为 ClaudeCode、Codex、LoomCode 等智能体的快速访问：_
 | Agent 引擎 | [[modules/agent-引擎\|Agent 引擎]] | 推理循环、模式切换、子Agent编排 |
 | Provider 层 | [[modules/provider-层\|Provider 层]] | 多厂商模型接入、能力声明 |
 | 工具系统 | [[modules/tool-系统\|工具系统]] | 工具注册、执行、修复、并行 |
-| 配置系统 | [[modules/config-系统\|配置系统]] | TOML 加载、向导、Schema |
+| 配置系统 | [[modules/config-系统\|配置系统]] | JSON 加载、向导、Schema |
 | 控制层 | [[modules/control-层\|控制层]] | 权限、成本、门控 |
 | 会话管理 | [[modules/session-管理\|会话管理]] | 生命周期、JSONL 持久化 |
 | MCP 插件 | [[modules/mcp-插件\|MCP 插件]] | 外部工具扩展 |
